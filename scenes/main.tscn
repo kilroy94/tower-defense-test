@@ -1,0 +1,225 @@
+[gd_scene load_steps=15 format=3 uid="uid://c85llb62ikjb1"]
+
+[ext_resource type="Script" uid="uid://c5pbi3goi8rg8" path="res://scripts/rts_camera_controller.gd" id="1_camera_controller"]
+[ext_resource type="Script" uid="uid://bo10ghyiuf53o" path="res://scripts/world_grid.gd" id="2_world_grid"]
+[ext_resource type="Script" path="res://scripts/grid_placement_preview.gd" id="4_grid_preview"]
+[ext_resource type="Script" path="res://scripts/building_manager.gd" id="5_building_manager"]
+[ext_resource type="Script" path="res://scripts/building_hover_tooltip.gd" id="6_building_hover_tooltip"]
+[ext_resource type="Script" path="res://scripts/rts_unit.gd" id="7_rts_unit"]
+[ext_resource type="Script" path="res://scripts/selection_panel.gd" id="8_selection_panel"]
+[ext_resource type="Script" path="res://scripts/command_grid.gd" id="9_command_grid"]
+
+[sub_resource type="Environment" id="Environment_main"]
+background_mode = 1
+background_color = Color(0.11, 0.14, 0.16, 1)
+ambient_light_source = 3
+ambient_light_color = Color(0.58, 0.65, 0.7, 1)
+ambient_light_energy = 0.55
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_ground"]
+albedo_color = Color(0.26, 0.34, 0.28, 1)
+roughness = 0.9
+
+[sub_resource type="PlaneMesh" id="PlaneMesh_ground"]
+material = SubResource("StandardMaterial3D_ground")
+size = Vector2(120, 120)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_ground_collision"]
+size = Vector3(120, 1, 120)
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_tooltip"]
+bg_color = Color(0.05, 0.06, 0.065, 0.88)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.72, 0.78, 0.72, 0.8)
+corner_radius_top_left = 4
+corner_radius_top_right = 4
+corner_radius_bottom_right = 4
+corner_radius_bottom_left = 4
+content_margin_left = 10.0
+content_margin_top = 6.0
+content_margin_right = 10.0
+content_margin_bottom = 6.0
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_selection_panel"]
+bg_color = Color(0.035, 0.039, 0.035, 0.94)
+border_width_left = 2
+border_width_top = 2
+border_width_right = 2
+border_width_bottom = 2
+border_color = Color(0.36, 0.38, 0.32, 1)
+corner_radius_top_left = 4
+corner_radius_top_right = 4
+corner_radius_bottom_right = 4
+corner_radius_bottom_left = 4
+content_margin_left = 10.0
+content_margin_top = 10.0
+content_margin_right = 10.0
+content_margin_bottom = 10.0
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_portrait"]
+bg_color = Color(0.015, 0.018, 0.016, 1)
+border_width_left = 2
+border_width_top = 2
+border_width_right = 2
+border_width_bottom = 2
+border_color = Color(0.66, 0.58, 0.3, 1)
+
+[node name="Main" type="Node3D"]
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Environment_main")
+
+[node name="Sun" type="DirectionalLight3D" parent="."]
+transform = Transform3D(0.707107, -0.353553, 0.612372, 0, 0.866025, 0.5, -0.707107, -0.353553, 0.612372, 0, 0, 0)
+light_energy = 2.2
+shadow_enabled = true
+
+[node name="Ground" type="MeshInstance3D" parent="."]
+mesh = SubResource("PlaneMesh_ground")
+
+[node name="GroundCollision" type="StaticBody3D" parent="."]
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="GroundCollision"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.5, 0)
+shape = SubResource("BoxShape3D_ground_collision")
+
+[node name="Grid" type="MeshInstance3D" parent="."]
+script = ExtResource("2_world_grid")
+
+[node name="CameraRig" type="Node3D" parent="."]
+script = ExtResource("1_camera_controller")
+
+[node name="Camera3D" type="Camera3D" parent="CameraRig"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 26, 30)
+current = true
+fov = 50.0
+
+[node name="GridPlacementPreview" type="MeshInstance3D" parent="."]
+script = ExtResource("4_grid_preview")
+camera_path = NodePath("../CameraRig/Camera3D")
+grid_path = NodePath("../Grid")
+
+[node name="Buildings" type="Node3D" parent="."]
+
+[node name="Units" type="Node3D" parent="."]
+
+[node name="Scout" type="CharacterBody3D" parent="Units"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -10, 0, -10)
+script = ExtResource("7_rts_unit")
+grid_path = NodePath("../../Grid")
+unit_name = "Scout"
+
+[node name="BuildingManager" type="Node" parent="."]
+script = ExtResource("5_building_manager")
+grid_path = NodePath("../Grid")
+camera_rig_path = NodePath("../CameraRig")
+preview_path = NodePath("../GridPlacementPreview")
+hud_label_path = NodePath("../HUD/SelectedBuildingLabel")
+selection_panel_path = NodePath("../HUD/SelectionPanel")
+command_grid_path = NodePath("../HUD/CommandGrid")
+buildings_root_path = NodePath("../Buildings")
+
+[node name="BuildingHoverTooltip" type="Node" parent="."]
+script = ExtResource("6_building_hover_tooltip")
+camera_path = NodePath("../CameraRig/Camera3D")
+grid_path = NodePath("../Grid")
+popup_label_path = NodePath("../HUD/BuildingTooltipLabel")
+
+[node name="HUD" type="CanvasLayer" parent="."]
+
+[node name="SelectedBuildingLabel" type="Label" parent="HUD"]
+offset_left = 16.0
+offset_top = 16.0
+offset_right = 880.0
+offset_bottom = 48.0
+theme_override_font_sizes/font_size = 18
+text = "Selected: North Tower"
+
+[node name="BuildingTooltipLabel" type="Label" parent="HUD"]
+visible = false
+offset_left = 24.0
+offset_top = 64.0
+offset_right = 156.0
+offset_bottom = 96.0
+mouse_filter = 2
+theme_override_colors/font_color = Color(0.92, 0.96, 0.9, 1)
+theme_override_font_sizes/font_size = 16
+theme_override_styles/normal = SubResource("StyleBoxFlat_tooltip")
+text = "Building"
+
+[node name="SelectionPanel" type="PanelContainer" parent="HUD"]
+anchors_preset = 7
+anchor_left = 0.5
+anchor_top = 1.0
+anchor_right = 0.5
+anchor_bottom = 1.0
+offset_left = -250.0
+offset_top = -138.0
+offset_right = 250.0
+offset_bottom = -16.0
+grow_horizontal = 2
+grow_vertical = 0
+theme_override_styles/panel = SubResource("StyleBoxFlat_selection_panel")
+script = ExtResource("8_selection_panel")
+portrait_viewport_path = NodePath("PanelLayout/PortraitFrame/PortraitViewport/PortraitViewport")
+portrait_root_path = NodePath("PanelLayout/PortraitFrame/PortraitViewport/PortraitViewport/PortraitRoot")
+portrait_camera_path = NodePath("PanelLayout/PortraitFrame/PortraitViewport/PortraitViewport/PortraitCamera")
+name_label_path = NodePath("PanelLayout/InfoPanel/NameLabel")
+
+[node name="PanelLayout" type="HBoxContainer" parent="HUD/SelectionPanel"]
+theme_override_constants/separation = 12
+
+[node name="PortraitFrame" type="PanelContainer" parent="HUD/SelectionPanel/PanelLayout"]
+custom_minimum_size = Vector2(104, 104)
+theme_override_styles/panel = SubResource("StyleBoxFlat_portrait")
+
+[node name="PortraitViewport" type="SubViewportContainer" parent="HUD/SelectionPanel/PanelLayout/PortraitFrame"]
+custom_minimum_size = Vector2(96, 96)
+stretch = true
+
+[node name="PortraitViewport" type="SubViewport" parent="HUD/SelectionPanel/PanelLayout/PortraitFrame/PortraitViewport"]
+transparent_bg = true
+own_world_3d = true
+size = Vector2i(96, 96)
+render_target_update_mode = 4
+
+[node name="PortraitRoot" type="Node3D" parent="HUD/SelectionPanel/PanelLayout/PortraitFrame/PortraitViewport/PortraitViewport"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 10000, 1000, 10000)
+
+[node name="PortraitLight" type="DirectionalLight3D" parent="HUD/SelectionPanel/PanelLayout/PortraitFrame/PortraitViewport/PortraitViewport"]
+transform = Transform3D(0.866025, -0.25, 0.433013, 0, 0.866025, 0.5, -0.5, -0.433013, 0.75, 10000, 1000, 10000)
+light_energy = 2.5
+
+[node name="PortraitCamera" type="Camera3D" parent="HUD/SelectionPanel/PanelLayout/PortraitFrame/PortraitViewport/PortraitViewport"]
+transform = Transform3D(1, 0, 0, 0, 0.906308, 0.422618, 0, -0.422618, 0.906308, 10000, 1002.2, 10005.2)
+current = true
+fov = 42.0
+
+[node name="InfoPanel" type="VBoxContainer" parent="HUD/SelectionPanel/PanelLayout"]
+custom_minimum_size = Vector2(350, 104)
+alignment = 1
+
+[node name="NameLabel" type="Label" parent="HUD/SelectionPanel/PanelLayout/InfoPanel"]
+theme_override_colors/font_color = Color(0.92, 0.88, 0.72, 1)
+theme_override_font_sizes/font_size = 22
+text = "No selection"
+
+[node name="CommandGrid" type="GridContainer" parent="HUD"]
+anchors_preset = 3
+anchor_left = 1.0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -184.0
+offset_top = -184.0
+offset_right = -16.0
+offset_bottom = -16.0
+grow_horizontal = 0
+grow_vertical = 0
+theme_override_constants/h_separation = 6
+theme_override_constants/v_separation = 6
+columns = 3
+script = ExtResource("9_command_grid")
