@@ -1,13 +1,13 @@
 [gd_scene load_steps=15 format=3 uid="uid://c85llb62ikjb1"]
 
-[ext_resource type="Script" uid="uid://c5pbi3goi8rg8" path="res://scripts/rts_camera_controller.gd" id="1_camera_controller"]
-[ext_resource type="Script" uid="uid://bo10ghyiuf53o" path="res://scripts/world_grid.gd" id="2_world_grid"]
-[ext_resource type="Script" path="res://scripts/grid_placement_preview.gd" id="4_grid_preview"]
-[ext_resource type="Script" path="res://scripts/building_manager.gd" id="5_building_manager"]
-[ext_resource type="Script" path="res://scripts/building_hover_tooltip.gd" id="6_building_hover_tooltip"]
-[ext_resource type="Script" path="res://scripts/rts_unit.gd" id="7_rts_unit"]
-[ext_resource type="Script" path="res://scripts/selection_panel.gd" id="8_selection_panel"]
-[ext_resource type="Script" path="res://scripts/command_grid.gd" id="9_command_grid"]
+[ext_resource type="Script" uid="uid://c5pbi3goi8rg8" path="res://scripts/core/rts_camera_controller.gd" id="1_camera_controller"]
+[ext_resource type="Script" uid="uid://bo10ghyiuf53o" path="res://scripts/systems/world_grid.gd" id="2_world_grid"]
+[ext_resource type="Script" path="res://scripts/systems/grid_placement_preview.gd" id="4_grid_preview"]
+[ext_resource type="Script" path="res://scripts/systems/building_manager.gd" id="5_building_manager"]
+[ext_resource type="Script" path="res://scripts/systems/building_hover_tooltip.gd" id="6_building_hover_tooltip"]
+[ext_resource type="Script" path="res://scripts/core/rts_unit.gd" id="7_rts_unit"]
+[ext_resource type="Script" path="res://scripts/ui/selection_panel.gd" id="8_selection_panel"]
+[ext_resource type="Script" path="res://scripts/ui/command_grid.gd" id="9_command_grid"]
 
 [sub_resource type="Environment" id="Environment_main"]
 background_mode = 1

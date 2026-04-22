@@ -1,12 +1,12 @@
 extends Node
 
-const ERROR_SOUND: AudioStream = preload("res://assets/vo/Interface/Error.wav")
-const BUILDING_PLACEMENT_SOUND: AudioStream = preload("res://assets/vo/Miscellaneous/Buildings/Shared/BuildingPlacement.wav")
-const BUILDING_CONSTRUCTION_SOUND: AudioStream = preload("res://assets/vo/Miscellaneous/Buildings/Shared/BuildingConstruction.wav")
-const BUILDING_COMPLETE_SOUND: AudioStream = preload("res://assets/vo/Miscellaneous/Buildings/Human/PeasantBuildingComplete1.wav")
+const ERROR_SOUND: AudioStream = preload("res://assets/audio/sfx/vo/Interface/Error.wav")
+const BUILDING_PLACEMENT_SOUND: AudioStream = preload("res://assets/audio/sfx/vo/Miscellaneous/Buildings/Shared/BuildingPlacement.wav")
+const BUILDING_CONSTRUCTION_SOUND: AudioStream = preload("res://assets/audio/sfx/vo/Miscellaneous/Buildings/Shared/BuildingConstruction.wav")
+const BUILDING_COMPLETE_SOUND: AudioStream = preload("res://assets/audio/sfx/vo/Miscellaneous/Buildings/Human/PeasantBuildingComplete1.wav")
 const CONSTRUCTION_LOOP_SOUNDS: Array[AudioStream] = [
-	preload("res://assets/vo/Miscellaneous/Buildings/Shared/ConstructionLoop1.wav"),
-	preload("res://assets/vo/Miscellaneous/Buildings/Shared/ConstructionLoop2.wav")
+	preload("res://assets/audio/sfx/vo/Miscellaneous/Buildings/Shared/ConstructionLoop1.wav"),
+	preload("res://assets/audio/sfx/vo/Miscellaneous/Buildings/Shared/ConstructionLoop2.wav")
 ]
 const COMMAND_BUILD := "build"
 const COMMAND_DESTROY := "destroy"
@@ -15,6 +15,8 @@ const BUILDINGS_MENU_ID := "buildings"
 const QUIET_CONSTRUCTION_LOOP_VOLUME_DB := -18.0
 const DESTROY_MARKER_META := "destroy_marker"
 const DOUBLE_TAP_WINDOW_MSEC := 350
+const BUILD_MENU_BACK_SLOT := Vector2i(2, 2)
+const MAX_BUILD_MENU_BUILDINGS := 8
 
 @export var grid_path: NodePath
 @export var camera_rig_path: NodePath
@@ -23,6 +25,7 @@ const DOUBLE_TAP_WINDOW_MSEC := 350
 @export var selection_panel_path: NodePath
 @export var command_grid_path: NodePath
 @export var buildings_root_path: NodePath
+@export var building_data_directory := "res://data/buildings"
 
 @onready var map_grid: MapGrid = get_node(grid_path)
 @onready var camera_rig: Node = get_node(camera_rig_path)
@@ -40,36 +43,7 @@ enum InteractionState {
 	DESTROYING
 }
 
-var _building_options: Array[Dictionary] = [
-	{
-		"name": "North Tower",
-		"footprint": Vector2i(1, 1),
-		"size": Vector3(2.0, 6.0, 2.0),
-		"color": Color(0.22, 0.48, 0.86, 1.0),
-		"portrait_camera_offset": Vector3(0.0, 4.1, 8.4),
-		"portrait_camera_target": Vector3(0.0, 2.6, 0.0),
-		"portrait_camera_fov": 34.0
-	},
-	{
-		"name": "East Hall",
-		"footprint": Vector2i(2, 1),
-		"size": Vector3(6.4, 4.0, 2.8),
-		"color": Color(0.82, 0.24, 0.22, 1.0),
-		"portrait_camera_offset": Vector3(0.0, 3.2, 9.0),
-		"portrait_camera_target": Vector3(0.0, 1.9, 0.0),
-		"portrait_camera_fov": 42.0
-	},
-	{
-		"name": "Southwest Depot",
-		"footprint": Vector2i(1, 2),
-		"size": Vector3(2.8, 3.0, 6.4),
-		"color": Color(0.92, 0.72, 0.28, 1.0),
-		"portrait_camera_offset": Vector3(0.0, 3.0, 8.0),
-		"portrait_camera_target": Vector3(0.0, 1.5, 0.0),
-		"portrait_camera_fov": 42.0
-	}
-]
-
+var _building_options: Array[Dictionary] = []
 var _selected_index := 0
 var _selected_placed_building: Node = null
 var _selected_unit: RtsUnit = null
@@ -80,10 +54,12 @@ var _queued_buildings_root: Node3D
 var _building_audio_rng := RandomNumberGenerator.new()
 var _last_scout_hotkey_msec := 0
 var _queue_display_unit: RtsUnit = null
+var _all_building_options: Array[Dictionary] = []
 
 
 func _ready() -> void:
 	_building_audio_rng.randomize()
+	_load_building_data()
 	_create_interface_audio_player()
 	_create_selection_ring()
 	_create_queued_buildings_root()
@@ -160,6 +136,10 @@ func _handle_right_click() -> void:
 
 
 func _set_interaction_state(new_state: int) -> void:
+	if new_state == InteractionState.BUILDING and _building_options.is_empty():
+		_play_invalid_order_feedback()
+		new_state = InteractionState.SELECTING
+
 	_interaction_state = new_state
 	placement_preview.set_display_enabled(_interaction_state == InteractionState.BUILDING)
 	if _selected_unit != null:
@@ -213,6 +193,11 @@ func _select_building(index: int) -> void:
 
 
 func _apply_selected_building() -> void:
+	if _building_options.is_empty():
+		placement_preview.set_display_enabled(false)
+		_update_hud()
+		return
+
 	var building: Dictionary = _get_selected_building()
 	var footprint: Vector2i = building["footprint"]
 	var size: Vector3 = building["size"]
@@ -224,6 +209,10 @@ func _apply_selected_building() -> void:
 
 func _try_issue_build_order() -> void:
 	if _interaction_state != InteractionState.BUILDING:
+		return
+
+	if _building_options.is_empty():
+		_play_invalid_order_feedback()
 		return
 
 	if _selected_unit == null:
@@ -352,7 +341,10 @@ func _place_building(building: Dictionary, anchor_cell: Vector2i) -> void:
 	var size: Vector3 = building["size"]
 	var building_body := _create_building_body(building)
 	var building_name := String(building["name"])
+	building_body.set_meta("building_id", String(building.get("id", building_name.to_snake_case())))
 	building_body.set_meta("building_name", building_name)
+	building_body.set_meta("cost", building.get("cost", {}))
+	building_body.set_meta("stats", building.get("stats", {}))
 	building_body.set_meta("building_size", size)
 	building_body.set_meta("building_color", building["color"])
 	building_body.set_meta("portrait_camera_offset", building["portrait_camera_offset"])
@@ -496,6 +488,7 @@ func _select_unit(unit: RtsUnit) -> void:
 	_queue_display_unit = unit
 	_queue_display_unit.action_queue_changed.connect(_on_selected_unit_action_queue_changed)
 	command_grid.set_commands(unit.get_command_definitions())
+	_filter_building_options_for_unit(unit)
 	_sync_building_command_menu()
 	command_grid.set_selected_command("")
 	_update_selection_ring()
@@ -551,6 +544,7 @@ func _clear_selection() -> void:
 	_disconnect_queue_display_unit()
 	_selected_placed_building = null
 	_selected_unit = null
+	_building_options.clear()
 	command_grid.set_commands([])
 	command_grid.set_selected_command("")
 	_selection_ring.visible = false
@@ -585,7 +579,8 @@ func _on_command_pressed(command_id: String) -> void:
 
 func _sync_building_command_menu() -> void:
 	var commands: Array[Dictionary] = []
-	for index in range(_building_options.size()):
+	var visible_building_count := mini(_building_options.size(), MAX_BUILD_MENU_BUILDINGS)
+	for index in range(visible_building_count):
 		var building: Dictionary = _building_options[index]
 		commands.append({
 			"id": _get_building_command_id(index),
@@ -598,11 +593,53 @@ func _sync_building_command_menu() -> void:
 	commands.append({
 		"id": "back",
 		"label": "Back",
-		"slot": Vector2i(2, 2),
+		"slot": BUILD_MENU_BACK_SLOT,
 		"menu": CommandGrid.ROOT_MENU_ID,
 		"tooltip": "Back"
 	})
 	command_grid.set_menu(BUILDINGS_MENU_ID, commands)
+
+
+func _load_building_data() -> void:
+	var loaded_buildings := GameData.load_building_definitions(building_data_directory)
+	if loaded_buildings.is_empty():
+		push_warning("No building definitions were loaded from %s." % building_data_directory)
+		return
+
+	_all_building_options = loaded_buildings
+	_building_options.clear()
+	_selected_index = 0
+
+
+func _filter_building_options_for_unit(unit: RtsUnit) -> void:
+	_building_options.clear()
+	var available_building_ids := unit.get_available_building_ids()
+	if available_building_ids.is_empty():
+		_selected_index = 0
+		return
+
+	for building_id in available_building_ids:
+		var building := _get_building_option_by_id(building_id)
+		if not building.is_empty():
+			_building_options.append(building)
+
+	if _building_options.size() > MAX_BUILD_MENU_BUILDINGS:
+		push_warning(
+			"%s can build %d buildings, but the current 3x3 build menu only supports %d because the final slot is reserved for Back. Extra buildings are hidden until paging or categories are implemented." %
+			[unit.unit_name, _building_options.size(), MAX_BUILD_MENU_BUILDINGS]
+		)
+
+	_selected_index = clampi(_selected_index, 0, max(0, _building_options.size() - 1))
+	_apply_selected_building()
+
+
+func _get_building_option_by_id(building_id: String) -> Dictionary:
+	for building in _all_building_options:
+		if String(building.get("id", "")) == building_id:
+			return building
+
+	push_warning("Building '%s' is listed by the selected unit but no matching building JSON was loaded." % building_id)
+	return {}
 
 
 func _get_building_command_id(index: int) -> String:
@@ -807,8 +844,10 @@ func _create_queued_building_material(color: Color) -> StandardMaterial3D:
 
 
 func _update_hud() -> void:
-	var building: Dictionary = _get_selected_building()
-	var building_name := String(building["name"])
+	var building_name := "None"
+	if not _building_options.is_empty():
+		building_name = String(_get_selected_building()["name"])
+
 	if _interaction_state == InteractionState.BUILDING:
 		var worker_status := "Worker selected" if _selected_unit != null else "Select a worker first"
 		hud_label.text = "Mode: Building  |  %s  |  Build: %s  |  LMB build  Shift+LMB queue  B/Esc selecting" % [worker_status, building_name]
@@ -820,4 +859,7 @@ func _update_hud() -> void:
 
 
 func _get_selected_building() -> Dictionary:
+	if _building_options.is_empty():
+		return {}
+
 	return _building_options[_selected_index]

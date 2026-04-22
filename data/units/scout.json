@@ -1,0 +1,68 @@
+{
+  "id": "scout",
+  "name": "Scout",
+  "cost": {
+    "gold": 0,
+    "lumber": 0,
+    "food": 1
+  },
+  "stats": {
+    "max_health": 220,
+    "damage": 8,
+    "armor": 0,
+    "attack_range": 1.2,
+    "attack_cooldown": 1.4
+  },
+  "movement": {
+    "move_speed": 10.0,
+    "arrival_distance": 0.2
+  },
+  "body_color": [0.18, 0.78, 0.9, 1.0],
+  "portrait_camera": {
+    "offset": [0.0, 1.45, 4.0],
+    "target": [0.0, 0.8, 0.0],
+    "fov": 36.0
+  },
+  "commands": [
+    {
+      "id": "build_menu",
+      "label": "Build",
+      "slot": [0, 2],
+      "menu": "buildings",
+      "tooltip": "Build"
+    },
+    {
+      "id": "destroy",
+      "label": "Destroy",
+      "slot": [1, 2],
+      "tooltip": "Destroy"
+    }
+  ],
+  "available_buildings": [
+    "north_tower",
+    "east_hall",
+    "southwest_depot"
+  ],
+  "audio": {
+    "selection": [
+      "res://assets/audio/sfx/vo/Human/Peasant/PeasantWhat1.wav",
+      "res://assets/audio/sfx/vo/Human/Peasant/PeasantWhat2.wav",
+      "res://assets/audio/sfx/vo/Human/Peasant/PeasantWhat3.wav",
+      "res://assets/audio/sfx/vo/Human/Peasant/PeasantWhat4.wav"
+    ],
+    "move_order": [
+      "res://assets/audio/sfx/vo/Human/Peasant/PeasantYes1.wav",
+      "res://assets/audio/sfx/vo/Human/Peasant/PeasantYes2.wav",
+      "res://assets/audio/sfx/vo/Human/Peasant/PeasantYes3.wav",
+      "res://assets/audio/sfx/vo/Human/Peasant/PeasantYes4.wav"
+    ],
+    "angry": [
+      "res://assets/audio/sfx/vo/Human/Peasant/PeasantAngry1.wav",
+      "res://assets/audio/sfx/vo/Human/Peasant/PeasantAngry2.wav",
+      "res://assets/audio/sfx/vo/Human/Peasant/PeasantAngry3.wav",
+      "res://assets/audio/sfx/vo/Human/Peasant/PeasantAngry4.wav",
+      "res://assets/audio/sfx/vo/Human/Peasant/PeasantAngry5.wav"
+    ],
+    "cannot_build": "res://assets/audio/sfx/vo/Interface/Warning/Human/PeasantCannotBuildThere1.wav"
+  }
+}

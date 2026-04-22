@@ -3,30 +3,6 @@ extends CharacterBody3D
 
 signal action_queue_changed(queue: Array[Dictionary])
 
-const SELECTION_VOICE_LINES: Array[AudioStream] = [
-	preload("res://assets/vo/Human/Peasant/PeasantWhat1.wav"),
-	preload("res://assets/vo/Human/Peasant/PeasantWhat2.wav"),
-	preload("res://assets/vo/Human/Peasant/PeasantWhat3.wav"),
-	preload("res://assets/vo/Human/Peasant/PeasantWhat4.wav")
-]
-
-const MOVE_ORDER_VOICE_LINES: Array[AudioStream] = [
-	preload("res://assets/vo/Human/Peasant/PeasantYes1.wav"),
-	preload("res://assets/vo/Human/Peasant/PeasantYes2.wav"),
-	preload("res://assets/vo/Human/Peasant/PeasantYes3.wav"),
-	preload("res://assets/vo/Human/Peasant/PeasantYes4.wav")
-]
-
-const ANGRY_VOICE_LINES: Array[AudioStream] = [
-	preload("res://assets/vo/Human/Peasant/PeasantAngry1.wav"),
-	preload("res://assets/vo/Human/Peasant/PeasantAngry2.wav"),
-	preload("res://assets/vo/Human/Peasant/PeasantAngry3.wav"),
-	preload("res://assets/vo/Human/Peasant/PeasantAngry4.wav"),
-	preload("res://assets/vo/Human/Peasant/PeasantAngry5.wav")
-]
-
-const CANNOT_BUILD_VOICE_LINE: AudioStream = preload("res://assets/vo/Interface/Warning/Human/PeasantCannotBuildThere1.wav")
-
 const VOICE_TYPE_NONE := ""
 const VOICE_TYPE_SELECTION := "selection"
 const VOICE_TYPE_MOVE_ORDER := "move_order"
@@ -37,10 +13,17 @@ const SELECTION_SPAM_WINDOW_SECONDS := 5
 const MAX_ACTION_QUEUE_SIZE := 6
 
 @export var grid_path: NodePath
+@export var unit_id := "scout"
+@export var unit_data_path := "res://data/units/scout.json"
 @export var unit_name := "Scout"
 @export var move_speed: float = 10.0
 @export var body_color: Color = Color(0.18, 0.78, 0.9, 1.0)
 @export var arrival_distance: float = 0.2
+@export var max_health := 220
+@export var damage := 8
+@export var armor := 0
+@export var attack_range := 1.2
+@export var attack_cooldown := 1.4
 @export var portrait_camera_offset: Vector3 = Vector3(0.0, 1.45, 4.0)
 @export var portrait_camera_target: Vector3 = Vector3(0.0, 0.8, 0.0)
 @export var portrait_camera_fov: float = 36.0
@@ -76,11 +59,25 @@ var _voice_rng := RandomNumberGenerator.new()
 var _current_voice_type := VOICE_TYPE_NONE
 var _selection_spam_count := 0
 var _last_selection_voice_time_msec := 0
+var _cost: Dictionary = {}
+var _selection_voice_lines: Array[AudioStream] = []
+var _move_order_voice_lines: Array[AudioStream] = []
+var _angry_voice_lines: Array[AudioStream] = []
+var _cannot_build_voice_line: AudioStream = null
+var _available_building_ids: Array[String] = []
 
 
 func _ready() -> void:
+	_apply_unit_data()
 	add_to_group("rts_units")
 	set_meta("unit_name", unit_name)
+	set_meta("unit_id", unit_id)
+	set_meta("cost", _cost)
+	set_meta("max_health", max_health)
+	set_meta("damage", damage)
+	set_meta("armor", armor)
+	set_meta("attack_range", attack_range)
+	set_meta("attack_cooldown", attack_cooldown)
 	_voice_rng.randomize()
 	_create_visuals()
 	_create_voice_player()
@@ -144,27 +141,35 @@ func get_command_definitions() -> Array[Dictionary]:
 	return command_definitions
 
 
+func get_cost() -> Dictionary:
+	return _cost
+
+
+func get_available_building_ids() -> Array[String]:
+	return _available_building_ids
+
+
 func play_selection_voice() -> void:
 	_track_selection_spam()
 	if _selection_spam_count >= SELECTION_SPAM_THRESHOLD:
 		if not _is_selection_or_angry_voice_playing():
 			_selection_spam_count = 0
-			_play_random_voice(ANGRY_VOICE_LINES, VOICE_TYPE_ANGRY, false)
+			_play_random_voice(_angry_voice_lines, VOICE_TYPE_ANGRY, false)
 		return
 
 	if _is_selection_or_angry_voice_playing():
 		return
 
-	_play_random_voice(SELECTION_VOICE_LINES, VOICE_TYPE_SELECTION, true)
+	_play_random_voice(_selection_voice_lines, VOICE_TYPE_SELECTION, true)
 
 
 func play_move_order_voice() -> void:
 	_selection_spam_count = 0
-	_play_random_voice(MOVE_ORDER_VOICE_LINES, VOICE_TYPE_MOVE_ORDER, false)
+	_play_random_voice(_move_order_voice_lines, VOICE_TYPE_MOVE_ORDER, false)
 
 
 func play_cannot_build_there_voice() -> void:
-	_play_voice(CANNOT_BUILD_VOICE_LINE, VOICE_TYPE_WARNING, false)
+	_play_voice(_cannot_build_voice_line, VOICE_TYPE_WARNING, false)
 
 
 func _rebuild_path_to_target() -> void:
@@ -258,6 +263,48 @@ func _create_action(
 		"color": action_color,
 		"model": action_model
 	}
+
+
+func _apply_unit_data() -> void:
+	var definition := GameData.load_unit_definition(unit_data_path)
+	if definition.is_empty():
+		return
+
+	unit_id = String(definition.get("id", unit_id))
+	unit_name = String(definition.get("name", unit_name))
+	_cost = definition.get("cost", _cost)
+	body_color = definition.get("body_color", body_color)
+
+	var movement: Dictionary = definition.get("movement", {})
+	move_speed = float(movement.get("move_speed", move_speed))
+	arrival_distance = float(movement.get("arrival_distance", arrival_distance))
+
+	var stats: Dictionary = definition.get("stats", {})
+	max_health = int(stats.get("max_health", max_health))
+	damage = int(stats.get("damage", damage))
+	armor = int(stats.get("armor", armor))
+	attack_range = float(stats.get("attack_range", attack_range))
+	attack_cooldown = float(stats.get("attack_cooldown", attack_cooldown))
+
+	var portrait_camera: Dictionary = definition.get("portrait_camera", {})
+	portrait_camera_offset = portrait_camera.get("offset", portrait_camera_offset)
+	portrait_camera_target = portrait_camera.get("target", portrait_camera_target)
+	portrait_camera_fov = float(portrait_camera.get("fov", portrait_camera_fov))
+
+	var loaded_commands: Array[Dictionary] = definition.get("commands", [])
+	if not loaded_commands.is_empty():
+		command_definitions = loaded_commands
+
+	_available_building_ids.clear()
+	for building_id in definition.get("available_buildings", []):
+		_available_building_ids.append(String(building_id))
+
+	var audio: Dictionary = definition.get("audio", {})
+	_selection_voice_lines = GameData.load_audio_streams(audio.get("selection", []))
+	_move_order_voice_lines = GameData.load_audio_streams(audio.get("move_order", []))
+	_angry_voice_lines = GameData.load_audio_streams(audio.get("angry", []))
+	if audio.has("cannot_build"):
+		_cannot_build_voice_line = GameData.load_audio_stream(String(audio["cannot_build"]))
 
 
 func _start_action(action: Dictionary) -> bool:
@@ -387,6 +434,9 @@ func _play_random_voice(voice_lines: Array[AudioStream], voice_type: String, ign
 
 
 func _play_voice(voice_line: AudioStream, voice_type: String, ignore_if_same_type_is_playing: bool) -> void:
+	if voice_line == null:
+		return
+
 	if ignore_if_same_type_is_playing \
 		and _voice_player.playing \
 		and _current_voice_type == voice_type:

@@ -1,0 +1,23 @@
+{
+  "id": "north_tower",
+  "name": "North Tower",
+  "cost": {
+    "gold": 80,
+    "lumber": 30
+  },
+  "stats": {
+    "max_health": 650,
+    "damage": 22,
+    "armor": 2,
+    "attack_range": 8.0,
+    "attack_cooldown": 1.5
+  },
+  "footprint": [1, 1],
+  "size": [2.0, 6.0, 2.0],
+  "color": [0.22, 0.48, 0.86, 1.0],
+  "portrait_camera": {
+    "offset": [0.0, 4.1, 8.4],
+    "target": [0.0, 2.6, 0.0],
+    "fov": 34.0
+  }
+}
