@@ -47,6 +47,22 @@ func set_selected_command(command_id: String) -> void:
 	_render_current_menu()
 
 
+func handle_key_event(event: InputEventKey) -> bool:
+	if not event.pressed or event.echo:
+		return false
+
+	var slot_index := _get_slot_index_for_keycode(event.keycode)
+	if slot_index >= 0:
+		return _press_slot(slot_index)
+
+	var command_id := _get_command_id_for_keycode(event.keycode)
+	if command_id.is_empty():
+		return false
+
+	_activate_command(command_id)
+	return true
+
+
 func _render_current_menu() -> void:
 	_ensure_buttons()
 
@@ -60,10 +76,16 @@ func _render_current_menu() -> void:
 		if slot_index < 0 or slot_index >= SLOT_COUNT:
 			continue
 
-		var button := _buttons[slot_index]
 		_slot_commands[slot_index] = command
+
+	for slot_index in range(SLOT_COUNT):
+		var command := _slot_commands[slot_index]
+		if command.is_empty():
+			continue
+
+		var button := _buttons[slot_index]
 		var command_id := String(command.get("id", ""))
-		button.tooltip_text = String(command.get("tooltip", command.get("label", "")))
+		button.tooltip_text = _get_command_tooltip(command)
 		button.disabled = command_id.is_empty() and not command.has("menu")
 		_apply_button_style(button, command_id == _selected_command_id)
 		_apply_command_display(slot_index, command)
@@ -159,15 +181,131 @@ func _get_slot_index(slot: Variant) -> int:
 
 
 func _on_button_pressed(slot_index: int) -> void:
+	_press_slot(slot_index)
+
+
+func _press_slot(slot_index: int) -> bool:
+	if slot_index < 0 or slot_index >= _slot_commands.size():
+		return false
+
 	var command := _slot_commands[slot_index]
+	if command.is_empty():
+		return false
+
 	if command.has("menu"):
 		show_menu(String(command["menu"]))
-		return
+		return true
 
 	var command_id := String(command.get("id", ""))
 	if command_id.is_empty():
-		return
+		return false
+
 	command_pressed.emit(command_id)
+	return true
+
+
+func _activate_command(command_id: String) -> void:
+	for command in _slot_commands:
+		if String(command.get("id", "")) != command_id:
+			continue
+
+		if command.has("menu"):
+			show_menu(String(command["menu"]))
+		else:
+			command_pressed.emit(command_id)
+		return
+
+
+func _get_slot_index_for_keycode(keycode: int) -> int:
+	match keycode:
+		KEY_1:
+			return 0
+		KEY_2:
+			return 1
+		KEY_3:
+			return 2
+		KEY_4:
+			return 3
+		KEY_5:
+			return 4
+		KEY_6:
+			return 5
+		KEY_7:
+			return 6
+		KEY_8:
+			return 7
+		KEY_9:
+			return 8
+
+	return -1
+
+
+func _get_command_id_for_keycode(keycode: int) -> String:
+	var pressed_key := _normalize_hotkey(OS.get_keycode_string(keycode))
+	if pressed_key.is_empty():
+		return ""
+
+	var hotkey_to_command_id := _get_current_hotkey_map()
+	return String(hotkey_to_command_id.get(pressed_key, ""))
+
+
+func _get_current_hotkey_map() -> Dictionary:
+	var primary_counts: Dictionary = {}
+	for command in _slot_commands:
+		var primary_hotkey := _normalize_hotkey(command.get("hotkey", ""))
+		if primary_hotkey.is_empty():
+			continue
+
+		primary_counts[primary_hotkey] = int(primary_counts.get(primary_hotkey, 0)) + 1
+
+	var hotkey_to_command_id: Dictionary = {}
+	var commands_needing_fallback: Array[Dictionary] = []
+	for command in _slot_commands:
+		var primary_hotkey := _normalize_hotkey(command.get("hotkey", ""))
+		var command_id := String(command.get("id", ""))
+		if primary_hotkey.is_empty() or command_id.is_empty():
+			continue
+
+		if int(primary_counts.get(primary_hotkey, 0)) == 1:
+			hotkey_to_command_id[primary_hotkey] = command_id
+		else:
+			commands_needing_fallback.append(command)
+
+	for command in commands_needing_fallback:
+		var fallback_hotkey := _normalize_hotkey(command.get("fallback_hotkey", ""))
+		var command_id := String(command.get("id", ""))
+		if fallback_hotkey.is_empty() or command_id.is_empty() or hotkey_to_command_id.has(fallback_hotkey):
+			continue
+
+		hotkey_to_command_id[fallback_hotkey] = command_id
+
+	return hotkey_to_command_id
+
+
+func _get_command_tooltip(command: Dictionary) -> String:
+	var tooltip := String(command.get("tooltip", command.get("label", "")))
+	var hotkey := _get_effective_hotkey_for_command(command)
+	if hotkey.is_empty():
+		return tooltip
+
+	if tooltip.is_empty():
+		return "Hotkey: %s" % hotkey
+
+	return "%s (%s)" % [tooltip, hotkey]
+
+
+func _get_effective_hotkey_for_command(target_command: Dictionary) -> String:
+	var hotkey_map := _get_current_hotkey_map()
+	var command_id := String(target_command.get("id", ""))
+	for hotkey in hotkey_map:
+		if String(hotkey_map[hotkey]) == command_id:
+			return String(hotkey)
+
+	return ""
+
+
+func _normalize_hotkey(value: Variant) -> String:
+	return String(value).strip_edges().to_upper()
 
 
 func _apply_button_style(button: Button, is_selected: bool) -> void:
@@ -232,6 +370,8 @@ func _apply_model_camera(slot_index: int, model_data: Dictionary) -> void:
 
 func _create_model_material(color: Color) -> StandardMaterial3D:
 	var material := StandardMaterial3D.new()
+	if color.a < 1.0:
+		material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	material.albedo_color = color
 	material.roughness = 0.65
 	return material

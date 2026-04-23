@@ -28,6 +28,14 @@ static func load_unit_definition(path: String) -> Dictionary:
 	return _normalize_unit_definition(definition)
 
 
+static func load_enemy_definition(path: String) -> Dictionary:
+	var definition := load_json_file(path)
+	if definition.is_empty() or _is_template_definition(definition):
+		return {}
+
+	return _normalize_enemy_definition(definition)
+
+
 static func load_building_definitions(directory_path: String) -> Array[Dictionary]:
 	var buildings: Array[Dictionary] = []
 	var directory := DirAccess.open(directory_path)
@@ -70,6 +78,30 @@ static func _normalize_unit_definition(raw_definition: Dictionary) -> Dictionary
 	return definition
 
 
+static func _normalize_enemy_definition(raw_definition: Dictionary) -> Dictionary:
+	var definition := raw_definition.duplicate(true)
+	definition["body_color"] = color_from_json(definition.get("body_color", [0.75, 0.18, 0.18, 1.0]))
+	definition["marker_color"] = color_from_json(definition.get("marker_color", [0.12, 0.02, 0.02, 1.0]))
+
+	var collision: Dictionary = definition.get("collision", {})
+	collision["radius"] = float(collision.get("radius", 0.45))
+	collision["height"] = float(collision.get("height", 1.7))
+	definition["collision"] = collision
+
+	var movement: Dictionary = definition.get("movement", {})
+	movement["move_speed"] = float(movement.get("move_speed", 7.0))
+	movement["arrival_distance"] = float(movement.get("arrival_distance", 0.2))
+	definition["movement"] = movement
+
+	var portrait_camera: Dictionary = definition.get("portrait_camera", {})
+	portrait_camera["offset"] = vector3_from_json(portrait_camera.get("offset", [0.0, 1.45, 4.0]))
+	portrait_camera["target"] = vector3_from_json(portrait_camera.get("target", [0.0, 0.8, 0.0]))
+	portrait_camera["fov"] = float(portrait_camera.get("fov", 36.0))
+	definition["portrait_camera"] = portrait_camera
+
+	return definition
+
+
 static func _is_template_definition(definition: Dictionary) -> bool:
 	return bool(definition.get("template", false))
 
@@ -79,12 +111,26 @@ static func _normalize_building_definition(raw_definition: Dictionary) -> Dictio
 	definition["footprint"] = vector2i_from_json(definition.get("footprint", [1, 1]))
 	definition["size"] = vector3_from_json(definition.get("size", [2.0, 2.0, 2.0]))
 	definition["color"] = color_from_json(definition.get("color", [0.6, 0.6, 0.55, 1.0]))
+	definition["pathable"] = bool(definition.get("pathable", false))
+	definition["hotkey"] = String(definition.get("hotkey", ""))
+	definition["fallback_hotkey"] = String(definition.get("fallback_hotkey", ""))
+
+	var walkable_by: Array[String] = []
+	for actor_type in definition.get("walkable_by", []):
+		walkable_by.append(String(actor_type))
+	definition["walkable_by"] = walkable_by
 
 	var portrait_camera: Dictionary = definition.get("portrait_camera", {})
 	definition["portrait_camera_offset"] = vector3_from_json(portrait_camera.get("offset", [0.0, 2.2, 5.2]))
 	definition["portrait_camera_target"] = vector3_from_json(portrait_camera.get("target", [0.0, 1.0, 0.0]))
 	definition["portrait_camera_fov"] = float(portrait_camera.get("fov", 42.0))
 	definition.erase("portrait_camera")
+
+	var commands: Array[Dictionary] = []
+	for raw_command in definition.get("commands", []):
+		if raw_command is Dictionary:
+			commands.append(_normalize_command_definition(raw_command))
+	definition["commands"] = commands
 
 	return definition
 
@@ -93,6 +139,9 @@ static func _normalize_command_definition(raw_definition: Dictionary) -> Diction
 	var definition := raw_definition.duplicate(true)
 	if definition.has("slot"):
 		definition["slot"] = vector2i_from_json(definition["slot"])
+
+	definition["hotkey"] = String(definition.get("hotkey", ""))
+	definition["fallback_hotkey"] = String(definition.get("fallback_hotkey", ""))
 
 	return definition
 

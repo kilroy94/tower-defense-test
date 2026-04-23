@@ -29,6 +29,8 @@
       "id": "command_id",
       "label": "Command",
       "slot": [0, 0],
+      "hotkey": "C",
+      "fallback_hotkey": "",
       "tooltip": "Command tooltip"
     }
   ],

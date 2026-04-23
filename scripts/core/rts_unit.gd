@@ -11,6 +11,8 @@ const VOICE_TYPE_WARNING := "warning"
 const SELECTION_SPAM_THRESHOLD := 10
 const SELECTION_SPAM_WINDOW_SECONDS := 5
 const MAX_ACTION_QUEUE_SIZE := 6
+const COLLISION_LAYER_WORLD := 1 << 0
+const COLLISION_LAYER_BLOCKS_UNITS := 1 << 1
 
 @export var grid_path: NodePath
 @export var unit_id := "scout"
@@ -69,6 +71,7 @@ var _available_building_ids: Array[String] = []
 
 func _ready() -> void:
 	_apply_unit_data()
+	collision_mask = COLLISION_LAYER_WORLD | COLLISION_LAYER_BLOCKS_UNITS
 	add_to_group("rts_units")
 	set_meta("unit_name", unit_name)
 	set_meta("unit_id", unit_id)

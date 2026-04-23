@@ -1,4 +1,4 @@
-[gd_scene load_steps=15 format=3 uid="uid://c85llb62ikjb1"]
+[gd_scene load_steps=17 format=3 uid="uid://c85llb62ikjb1"]
 
 [ext_resource type="Script" uid="uid://c5pbi3goi8rg8" path="res://scripts/core/rts_camera_controller.gd" id="1_camera_controller"]
 [ext_resource type="Script" uid="uid://bo10ghyiuf53o" path="res://scripts/systems/world_grid.gd" id="2_world_grid"]
@@ -8,6 +8,8 @@
 [ext_resource type="Script" path="res://scripts/core/rts_unit.gd" id="7_rts_unit"]
 [ext_resource type="Script" path="res://scripts/ui/selection_panel.gd" id="8_selection_panel"]
 [ext_resource type="Script" path="res://scripts/ui/command_grid.gd" id="9_command_grid"]
+[ext_resource type="Script" path="res://scripts/enemies/rts_enemy.gd" id="10_rts_enemy"]
+[ext_resource type="Script" path="res://scripts/systems/building_action_system.gd" id="11_building_action_system"]
 
 [sub_resource type="Environment" id="Environment_main"]
 background_mode = 1
@@ -75,7 +77,7 @@ environment = SubResource("Environment_main")
 [node name="Sun" type="DirectionalLight3D" parent="."]
 transform = Transform3D(0.707107, -0.353553, 0.612372, 0, 0.866025, 0.5, -0.707107, -0.353553, 0.612372, 0, 0, 0)
 light_energy = 2.2
-shadow_enabled = true
+shadow_enabled = false
 
 [node name="Ground" type="MeshInstance3D" parent="."]
 mesh = SubResource("PlaneMesh_ground")
@@ -112,15 +114,26 @@ script = ExtResource("7_rts_unit")
 grid_path = NodePath("../../Grid")
 unit_name = "Scout"
 
+[node name="Enemies" type="Node3D" parent="."]
+
+[node name="Grunt" type="CharacterBody3D" parent="Enemies"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 10, 0, 10)
+script = ExtResource("10_rts_enemy")
+grid_path = NodePath("../../Grid")
+
 [node name="BuildingManager" type="Node" parent="."]
 script = ExtResource("5_building_manager")
 grid_path = NodePath("../Grid")
 camera_rig_path = NodePath("../CameraRig")
 preview_path = NodePath("../GridPlacementPreview")
-hud_label_path = NodePath("../HUD/SelectedBuildingLabel")
 selection_panel_path = NodePath("../HUD/SelectionPanel")
 command_grid_path = NodePath("../HUD/CommandGrid")
 buildings_root_path = NodePath("../Buildings")
+
+[node name="BuildingActionSystem" type="Node" parent="."]
+script = ExtResource("11_building_action_system")
+grid_path = NodePath("../Grid")
+enemies_root_path = NodePath("../Enemies")
 
 [node name="BuildingHoverTooltip" type="Node" parent="."]
 script = ExtResource("6_building_hover_tooltip")
@@ -129,14 +142,6 @@ grid_path = NodePath("../Grid")
 popup_label_path = NodePath("../HUD/BuildingTooltipLabel")
 
 [node name="HUD" type="CanvasLayer" parent="."]
-
-[node name="SelectedBuildingLabel" type="Label" parent="HUD"]
-offset_left = 16.0
-offset_top = 16.0
-offset_right = 880.0
-offset_bottom = 48.0
-theme_override_font_sizes/font_size = 18
-text = "Selected: North Tower"
 
 [node name="BuildingTooltipLabel" type="Label" parent="HUD"]
 visible = false

@@ -8,6 +8,7 @@ extends MeshInstance3D
 @export var major_line_color: Color = Color(0.56, 0.64, 0.58, 0.8)
 
 var _occupied_cells: Dictionary = {}
+var _path_blocked_cells: Dictionary = {}
 
 
 func _ready() -> void:
@@ -82,12 +83,17 @@ func can_place(anchor_cell: Vector2i, footprint: Vector2i = Vector2i.ONE) -> boo
 
 
 func is_cell_walkable(cell: Vector2i) -> bool:
-	return is_cell_in_bounds(cell) and not _occupied_cells.has(cell)
+	return is_cell_in_bounds(cell) and not _path_blocked_cells.has(cell)
 
 
 func find_path(start_cell: Vector2i, target_cell: Vector2i) -> Array[Vector2i]:
+	return find_path_with_filter(start_cell, target_cell, Callable())
+
+
+func find_path_with_filter(start_cell: Vector2i, target_cell: Vector2i, is_walkable_filter: Callable) -> Array[Vector2i]:
 	var path: Array[Vector2i] = []
-	if not is_cell_walkable(start_cell) or not is_cell_walkable(target_cell):
+	if not _is_cell_walkable_with_filter(start_cell, is_walkable_filter) \
+		or not _is_cell_walkable_with_filter(target_cell, is_walkable_filter):
 		return path
 
 	var frontier: Array[Vector2i] = [start_cell]
@@ -99,7 +105,7 @@ func find_path(start_cell: Vector2i, target_cell: Vector2i) -> Array[Vector2i]:
 		if current == target_cell:
 			break
 
-		for neighbor in _get_walkable_neighbors(current):
+		for neighbor in _get_walkable_neighbors_with_filter(current, is_walkable_filter):
 			var new_cost := int(cost_so_far[current]) + 1
 			if not cost_so_far.has(neighbor) or new_cost < int(cost_so_far[neighbor]):
 				cost_so_far[neighbor] = new_cost
@@ -118,23 +124,29 @@ func find_path(start_cell: Vector2i, target_cell: Vector2i) -> Array[Vector2i]:
 
 
 func is_world_segment_walkable(from: Vector3, to: Vector3) -> bool:
+	return is_world_segment_walkable_with_filter(from, to, Callable())
+
+
+func is_world_segment_walkable_with_filter(from: Vector3, to: Vector3, is_walkable_filter: Callable) -> bool:
 	var distance := Vector2(from.x, from.z).distance_to(Vector2(to.x, to.z))
 	var sample_count := maxi(2, ceili(distance / (cell_size * 0.25)))
 	for index in range(sample_count + 1):
 		var weight := float(index) / float(sample_count)
 		var point := from.lerp(to, weight)
-		if not is_cell_walkable(world_to_cell(point)):
+		if not _is_cell_walkable_with_filter(world_to_cell(point), is_walkable_filter):
 			return false
 
 	return true
 
 
-func occupy(anchor_cell: Vector2i, footprint: Vector2i = Vector2i.ONE, occupant: Variant = true) -> bool:
+func occupy(anchor_cell: Vector2i, footprint: Vector2i = Vector2i.ONE, occupant: Variant = true, blocks_pathing: bool = true) -> bool:
 	if not can_place(anchor_cell, footprint):
 		return false
 
 	for cell in get_footprint_cells(anchor_cell, footprint):
 		_occupied_cells[cell] = occupant
+		if blocks_pathing:
+			_path_blocked_cells[cell] = true
 
 	return true
 
@@ -142,10 +154,12 @@ func occupy(anchor_cell: Vector2i, footprint: Vector2i = Vector2i.ONE, occupant:
 func release(anchor_cell: Vector2i, footprint: Vector2i = Vector2i.ONE) -> void:
 	for cell in get_footprint_cells(anchor_cell, footprint):
 		_occupied_cells.erase(cell)
+		_path_blocked_cells.erase(cell)
 
 
 func clear_occupancy() -> void:
 	_occupied_cells.clear()
+	_path_blocked_cells.clear()
 
 
 func get_occupant(cell: Vector2i) -> Variant:
@@ -215,6 +229,10 @@ func _pop_lowest_priority_cell(frontier: Array[Vector2i], cost_so_far: Dictionar
 
 
 func _get_walkable_neighbors(cell: Vector2i) -> Array[Vector2i]:
+	return _get_walkable_neighbors_with_filter(cell, Callable())
+
+
+func _get_walkable_neighbors_with_filter(cell: Vector2i, is_walkable_filter: Callable) -> Array[Vector2i]:
 	var neighbors: Array[Vector2i] = []
 	var offsets: Array[Vector2i] = [
 		Vector2i(1, 0),
@@ -225,10 +243,17 @@ func _get_walkable_neighbors(cell: Vector2i) -> Array[Vector2i]:
 
 	for offset in offsets:
 		var neighbor := cell + offset
-		if is_cell_walkable(neighbor):
+		if _is_cell_walkable_with_filter(neighbor, is_walkable_filter):
 			neighbors.append(neighbor)
 
 	return neighbors
+
+
+func _is_cell_walkable_with_filter(cell: Vector2i, is_walkable_filter: Callable) -> bool:
+	if is_walkable_filter.is_valid():
+		return bool(is_walkable_filter.call(cell))
+
+	return is_cell_walkable(cell)
 
 
 func _get_manhattan_distance(a: Vector2i, b: Vector2i) -> float:

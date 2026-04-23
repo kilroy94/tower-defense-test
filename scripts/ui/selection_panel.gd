@@ -44,6 +44,22 @@ func show_unit(unit: RtsUnit) -> void:
 	_apply_portrait_camera(unit.portrait_camera_offset, unit.portrait_camera_target, unit.portrait_camera_fov)
 
 
+func show_enemy(enemy: RtsEnemy) -> void:
+	_clear_portrait()
+	name_label.text = enemy.enemy_name
+	show_action_queue([])
+
+	var capsule := MeshInstance3D.new()
+	var capsule_mesh := CapsuleMesh.new()
+	capsule_mesh.radius = enemy.collision_radius + 0.08
+	capsule_mesh.height = enemy.collision_height
+	capsule_mesh.material = _create_material(enemy.body_color)
+	capsule.mesh = capsule_mesh
+	capsule.position.y = enemy.collision_height * 0.5
+	portrait_root.add_child(capsule)
+	_apply_portrait_camera(enemy.portrait_camera_offset, enemy.portrait_camera_target, enemy.portrait_camera_fov)
+
+
 func show_building(building: Node) -> void:
 	_clear_portrait()
 	name_label.text = String(building.get_meta("building_name", "Building"))
@@ -144,6 +160,8 @@ func _apply_portrait_camera(offset: Vector3, target: Vector3, fov: float) -> voi
 
 func _create_material(color: Color) -> StandardMaterial3D:
 	var material := StandardMaterial3D.new()
+	if color.a < 1.0:
+		material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	material.albedo_color = color
 	material.roughness = 0.65
 	return material

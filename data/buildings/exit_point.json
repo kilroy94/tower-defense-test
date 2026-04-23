@@ -1,0 +1,39 @@
+{
+  "id": "exit_point",
+  "name": "Exit Point",
+  "cost": {
+    "gold": 90,
+    "lumber": 20
+  },
+  "stats": {
+    "max_health": 1000,
+    "damage": 0,
+    "armor": 0
+  },
+  "footprint": [2, 2],
+  "hotkey": "X",
+  "fallback_hotkey": "I",
+  "pathable": true,
+  "walkable_by": ["enemy"],
+  "size": [6.0, 0.75, 6.0],
+  "color": [0.08, 0.86, 0.58, 0.38],
+  "portrait_camera": {
+    "offset": [0.0, 2.8, 8.0],
+    "target": [0.0, 0.5, 0.0],
+    "fov": 38.0
+  },
+  "commands": [
+    {
+      "id": "exit",
+      "label": "Exit",
+      "slot": [0, 0],
+      "hotkey": "X",
+      "fallback_hotkey": "I",
+      "tooltip": "Passively removes enemies inside this building.",
+      "action": "exit_enemy",
+      "passive": true,
+      "interval": 0.1
+    }
+  ],
+  "notes": "Future enemy pathfinding goal. Enemies should eventually attempt to reach this building."
+}

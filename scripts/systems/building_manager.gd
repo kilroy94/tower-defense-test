@@ -17,11 +17,14 @@ const DESTROY_MARKER_META := "destroy_marker"
 const DOUBLE_TAP_WINDOW_MSEC := 350
 const BUILD_MENU_BACK_SLOT := Vector2i(2, 2)
 const MAX_BUILD_MENU_BUILDINGS := 8
+const ACTOR_TYPE_UNIT := "unit"
+const ACTOR_TYPE_ENEMY := "enemy"
+const COLLISION_LAYER_BLOCKS_UNITS := 1 << 1
+const COLLISION_LAYER_BLOCKS_ENEMIES := 1 << 2
 
 @export var grid_path: NodePath
 @export var camera_rig_path: NodePath
 @export var preview_path: NodePath
-@export var hud_label_path: NodePath
 @export var selection_panel_path: NodePath
 @export var command_grid_path: NodePath
 @export var buildings_root_path: NodePath
@@ -30,7 +33,6 @@ const MAX_BUILD_MENU_BUILDINGS := 8
 @onready var map_grid: MapGrid = get_node(grid_path)
 @onready var camera_rig: Node = get_node(camera_rig_path)
 @onready var placement_preview: GridPlacementPreview = get_node(preview_path)
-@onready var hud_label: Label = get_node(hud_label_path)
 @onready var selection_panel: SelectionPanel = get_node(selection_panel_path)
 @onready var command_grid: CommandGrid = get_node(command_grid_path)
 @onready var buildings_root: Node3D = get_node(buildings_root_path)
@@ -47,6 +49,7 @@ var _building_options: Array[Dictionary] = []
 var _selected_index := 0
 var _selected_placed_building: Node = null
 var _selected_unit: RtsUnit = null
+var _selected_enemy: RtsEnemy = null
 var _selection_ring: MeshInstance3D
 var _interface_audio_player: AudioStreamPlayer
 var _interaction_state := InteractionState.SELECTING
@@ -72,7 +75,7 @@ func _ready() -> void:
 
 
 func _process(_delta: float) -> void:
-	if _selected_unit != null:
+	if _selected_unit != null or _selected_enemy != null:
 		_update_selection_ring()
 
 
@@ -80,22 +83,22 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo:
 		match event.keycode:
 			KEY_B:
-				_toggle_building_mode()
+				if _interaction_state == InteractionState.BUILDING:
+					_set_interaction_state(InteractionState.SELECTING)
+					return
 			KEY_V:
-				_toggle_destroy_mode()
+				if _interaction_state == InteractionState.DESTROYING:
+					_set_interaction_state(InteractionState.SELECTING)
+					return
 			KEY_F1:
 				_select_scout_unit_from_hotkey()
+				return
 			KEY_ESCAPE:
 				_set_interaction_state(InteractionState.SELECTING)
-			KEY_1:
-				if _interaction_state == InteractionState.BUILDING:
-					_select_building(0)
-			KEY_2:
-				if _interaction_state == InteractionState.BUILDING:
-					_select_building(1)
-			KEY_3:
-				if _interaction_state == InteractionState.BUILDING:
-					_select_building(2)
+				return
+
+		if command_grid.handle_key_event(event):
+			return
 
 	if event is InputEventMouseButton \
 		and event.button_index == MOUSE_BUTTON_LEFT \
@@ -127,6 +130,11 @@ func _handle_left_click() -> void:
 		_select_unit(hovered_unit)
 		return
 
+	var hovered_enemy := _get_enemy_on_current_cell()
+	if hovered_enemy != null:
+		_select_enemy(hovered_enemy)
+		return
+
 	_clear_selection()
 
 
@@ -152,7 +160,6 @@ func _set_interaction_state(new_state: int) -> void:
 		else:
 			command_grid.show_menu(CommandGrid.ROOT_MENU_ID)
 			command_grid.set_selected_command("")
-	_update_hud()
 
 
 func _toggle_building_mode() -> void:
@@ -195,7 +202,6 @@ func _select_building(index: int) -> void:
 func _apply_selected_building() -> void:
 	if _building_options.is_empty():
 		placement_preview.set_display_enabled(false)
-		_update_hud()
 		return
 
 	var building: Dictionary = _get_selected_building()
@@ -204,7 +210,6 @@ func _apply_selected_building() -> void:
 	var color: Color = building["color"]
 	placement_preview.set_footprint(footprint)
 	placement_preview.set_building_preview(size, color)
-	_update_hud()
 
 
 func _try_issue_build_order() -> void:
@@ -341,10 +346,16 @@ func _place_building(building: Dictionary, anchor_cell: Vector2i) -> void:
 	var size: Vector3 = building["size"]
 	var building_body := _create_building_body(building)
 	var building_name := String(building["name"])
-	building_body.set_meta("building_id", String(building.get("id", building_name.to_snake_case())))
+	var building_id := String(building.get("id", building_name.to_snake_case()))
+	building_body.add_to_group("rts_buildings")
+	building_body.add_to_group("rts_building_%s" % building_id)
+	building_body.set_meta("building_id", building_id)
 	building_body.set_meta("building_name", building_name)
 	building_body.set_meta("cost", building.get("cost", {}))
 	building_body.set_meta("stats", building.get("stats", {}))
+	building_body.set_meta("commands", building.get("commands", []))
+	building_body.set_meta("pathable", bool(building.get("pathable", false)))
+	building_body.set_meta("walkable_by", building.get("walkable_by", []))
 	building_body.set_meta("building_size", size)
 	building_body.set_meta("building_color", building["color"])
 	building_body.set_meta("portrait_camera_offset", building["portrait_camera_offset"])
@@ -358,9 +369,8 @@ func _place_building(building: Dictionary, anchor_cell: Vector2i) -> void:
 		size.y * 0.5
 	)
 	buildings_root.add_child(building_body)
-	map_grid.occupy(anchor_cell, footprint, building_body)
+	map_grid.occupy(anchor_cell, footprint, building_body, not bool(building.get("pathable", false)))
 	_update_selection_ring()
-	_update_hud()
 
 
 func _create_queued_building_ghost(building: Dictionary, anchor_cell: Vector2i) -> Node3D:
@@ -449,7 +459,6 @@ func _delete_building(building_node: Node, anchor_cell: Vector2i, footprint: Vec
 	map_grid.release(anchor_cell, footprint)
 	building_node.queue_free()
 	_update_selection_ring()
-	_update_hud()
 
 
 func _get_building_on_current_cell() -> Node:
@@ -468,16 +477,28 @@ func _get_unit_on_current_cell() -> RtsUnit:
 	return null
 
 
+func _get_enemy_on_current_cell() -> RtsEnemy:
+	for enemy in get_tree().get_nodes_in_group("rts_enemies"):
+		if enemy is RtsEnemy and enemy.get_current_cell() == placement_preview.current_cell:
+			return enemy
+
+	return null
+
+
 func _select_placed_building(building_node: Node) -> void:
 	_disconnect_queue_display_unit()
 	_selected_placed_building = building_node
 	_selected_unit = null
-	command_grid.set_commands([])
+	_selected_enemy = null
+	var commands: Array[Dictionary] = []
+	for command in building_node.get_meta("commands", []):
+		if command is Dictionary:
+			commands.append(command)
+	command_grid.set_commands(commands)
 	command_grid.set_selected_command("")
 	if _interaction_state == InteractionState.BUILDING:
 		_set_interaction_state(InteractionState.SELECTING)
 	_update_selection_ring()
-	_update_hud()
 	selection_panel.show_building(building_node)
 
 
@@ -485,6 +506,7 @@ func _select_unit(unit: RtsUnit) -> void:
 	_disconnect_queue_display_unit()
 	_selected_unit = unit
 	_selected_placed_building = null
+	_selected_enemy = null
 	_queue_display_unit = unit
 	_queue_display_unit.action_queue_changed.connect(_on_selected_unit_action_queue_changed)
 	command_grid.set_commands(unit.get_command_definitions())
@@ -492,10 +514,23 @@ func _select_unit(unit: RtsUnit) -> void:
 	_sync_building_command_menu()
 	command_grid.set_selected_command("")
 	_update_selection_ring()
-	_update_hud()
 	selection_panel.show_unit(unit)
 	selection_panel.show_action_queue(unit.get_action_queue())
 	unit.play_selection_voice()
+
+
+func _select_enemy(enemy: RtsEnemy) -> void:
+	_disconnect_queue_display_unit()
+	_selected_enemy = enemy
+	_selected_unit = null
+	_selected_placed_building = null
+	_building_options.clear()
+	command_grid.set_commands([])
+	command_grid.set_selected_command("")
+	if _interaction_state != InteractionState.SELECTING:
+		_set_interaction_state(InteractionState.SELECTING)
+	_update_selection_ring()
+	selection_panel.show_enemy(enemy)
 
 
 func _select_scout_unit() -> void:
@@ -519,7 +554,7 @@ func _select_scout_unit_from_hotkey() -> void:
 
 	_select_unit(scout)
 	if now_msec - previous_tap_msec <= DOUBLE_TAP_WINDOW_MSEC:
-		_focus_camera_on_unit(scout)
+		_focus_camera_on_node(scout)
 
 
 func _get_unit_by_name(unit_name: String) -> RtsUnit:
@@ -532,23 +567,25 @@ func _get_unit_by_name(unit_name: String) -> RtsUnit:
 
 func _on_selection_portrait_double_clicked() -> void:
 	if _selected_unit != null:
-		_focus_camera_on_unit(_selected_unit)
+		_focus_camera_on_node(_selected_unit)
+	elif _selected_enemy != null:
+		_focus_camera_on_node(_selected_enemy)
 
 
-func _focus_camera_on_unit(unit: RtsUnit) -> void:
+func _focus_camera_on_node(node: Node3D) -> void:
 	if camera_rig.has_method("center_on_world_position"):
-		camera_rig.call("center_on_world_position", unit.global_position)
+		camera_rig.call("center_on_world_position", node.global_position)
 
 
 func _clear_selection() -> void:
 	_disconnect_queue_display_unit()
 	_selected_placed_building = null
 	_selected_unit = null
+	_selected_enemy = null
 	_building_options.clear()
 	command_grid.set_commands([])
 	command_grid.set_selected_command("")
 	_selection_ring.visible = false
-	_update_hud()
 	selection_panel.clear_selection()
 
 
@@ -586,6 +623,8 @@ func _sync_building_command_menu() -> void:
 			"id": _get_building_command_id(index),
 			"label": "",
 			"slot": index,
+			"hotkey": String(building.get("hotkey", "")),
+			"fallback_hotkey": String(building.get("fallback_hotkey", "")),
 			"tooltip": String(building["name"]),
 			"model": _get_building_model_data(building)
 		})
@@ -778,6 +817,16 @@ func _update_selection_ring() -> void:
 		_selection_ring.visible = true
 		return
 
+	if _selected_enemy != null:
+		if not is_instance_valid(_selected_enemy):
+			_clear_selection()
+			return
+
+		_selection_ring.mesh = _create_selection_ring_mesh(map_grid.cell_size * 0.35)
+		_selection_ring.global_position = _selected_enemy.global_position + Vector3.UP * 0.12
+		_selection_ring.visible = true
+		return
+
 	if _selected_placed_building == null \
 		or not _selected_placed_building.has_meta("grid_anchor_cell") \
 		or not _selected_placed_building.has_meta("grid_footprint"):
@@ -810,6 +859,7 @@ func _create_building_body(building: Dictionary) -> StaticBody3D:
 	var size: Vector3 = building["size"]
 	var color: Color = building["color"]
 	building_body.name = building_name
+	building_body.collision_layer = _get_building_collision_layer(building)
 
 	var mesh_instance := MeshInstance3D.new()
 	var box_mesh := BoxMesh.new()
@@ -827,8 +877,30 @@ func _create_building_body(building: Dictionary) -> StaticBody3D:
 	return building_body
 
 
+func _get_building_collision_layer(building: Dictionary) -> int:
+	var collision_layer := 0
+	if not _is_building_walkable_by(building, ACTOR_TYPE_UNIT):
+		collision_layer |= COLLISION_LAYER_BLOCKS_UNITS
+
+	if not _is_building_walkable_by(building, ACTOR_TYPE_ENEMY):
+		collision_layer |= COLLISION_LAYER_BLOCKS_ENEMIES
+
+	return collision_layer
+
+
+func _is_building_walkable_by(building: Dictionary, actor_type: String) -> bool:
+	for walkable_actor_type in building.get("walkable_by", []):
+		if String(walkable_actor_type) == actor_type:
+			return true
+
+	return false
+
+
 func _create_building_material(color: Color) -> StandardMaterial3D:
 	var material := StandardMaterial3D.new()
+	if color.a < 1.0:
+		material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		material.no_depth_test = true
 	material.albedo_color = color
 	material.roughness = 0.72
 	return material
@@ -841,21 +913,6 @@ func _create_queued_building_material(color: Color) -> StandardMaterial3D:
 	material.roughness = 0.8
 	material.no_depth_test = true
 	return material
-
-
-func _update_hud() -> void:
-	var building_name := "None"
-	if not _building_options.is_empty():
-		building_name = String(_get_selected_building()["name"])
-
-	if _interaction_state == InteractionState.BUILDING:
-		var worker_status := "Worker selected" if _selected_unit != null else "Select a worker first"
-		hud_label.text = "Mode: Building  |  %s  |  Build: %s  |  LMB build  Shift+LMB queue  B/Esc selecting" % [worker_status, building_name]
-	elif _interaction_state == InteractionState.DESTROYING:
-		var worker_status := "Worker selected" if _selected_unit != null else "Select a worker first"
-		hud_label.text = "Mode: Destroy  |  %s  |  LMB target building  V/Esc selecting" % worker_status
-	else:
-		hud_label.text = "Mode: Selecting  |  B building mode  V destroy mode  |  LMB select  RMB move unit"
 
 
 func _get_selected_building() -> Dictionary:

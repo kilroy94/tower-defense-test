@@ -11,6 +11,8 @@
     "armor": 1
   },
   "footprint": [1, 2],
+  "hotkey": "P",
+  "fallback_hotkey": "O",
   "size": [2.8, 3.0, 6.4],
   "color": [0.92, 0.72, 0.28, 1.0],
   "portrait_camera": {

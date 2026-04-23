@@ -13,6 +13,8 @@
     "attack_cooldown": 1.5
   },
   "footprint": [1, 1],
+  "hotkey": "N",
+  "fallback_hotkey": "T",
   "size": [2.0, 6.0, 2.0],
   "color": [0.22, 0.48, 0.86, 1.0],
   "portrait_camera": {

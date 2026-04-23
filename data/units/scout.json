@@ -28,6 +28,8 @@
       "id": "build_menu",
       "label": "Build",
       "slot": [0, 2],
+      "hotkey": "B",
+      "fallback_hotkey": "U",
       "menu": "buildings",
       "tooltip": "Build"
     },
@@ -35,13 +37,17 @@
       "id": "destroy",
       "label": "Destroy",
       "slot": [1, 2],
+      "hotkey": "V",
+      "fallback_hotkey": "X",
       "tooltip": "Destroy"
     }
   ],
   "available_buildings": [
     "north_tower",
     "east_hall",
-    "southwest_depot"
+    "southwest_depot",
+    "spawner",
+    "exit_point"
   ],
   "audio": {
     "selection": [

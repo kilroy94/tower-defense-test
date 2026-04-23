@@ -14,11 +14,27 @@
     "attack_cooldown": 0.0
   },
   "footprint": [1, 1],
+  "hotkey": "B",
+  "fallback_hotkey": "",
+  "pathable": false,
+  "walkable_by": [],
   "size": [2.0, 2.0, 2.0],
   "color": [1.0, 1.0, 1.0, 1.0],
   "portrait_camera": {
     "offset": [0.0, 2.2, 5.2],
     "target": [0.0, 1.0, 0.0],
     "fov": 42.0
-  }
+  },
+  "commands": [
+    {
+      "id": "command_id",
+      "label": "Command",
+      "slot": [0, 0],
+      "hotkey": "C",
+      "fallback_hotkey": "",
+      "tooltip": "Describe what this command does.",
+      "action": "action_id",
+      "passive": false
+    }
+  ]
 }
