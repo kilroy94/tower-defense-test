@@ -8,8 +8,16 @@
 
 - Decide whether enemies reaching an `Exit Point` should affect player lives, scoring, economy, or wave state before they are removed.
 
+## Combat Foundation
+
+- Add projectile definitions under `data/projectiles/`.
+- Add a generic projectile runtime that tracks a target and applies damage on impact.
+- Add first-pass ranged attack launching that spawns projectiles instead of applying immediate damage.
+- Keep first-pass combat behavior driven by `attack_cooldown`; reserve `attack_speed` for future attack animation timing.
+
 ## Next Session
 
-- Add functional stats to units, enemies, and buildings.
-- Add enemy path-block handling so enemies attack buildings that block their path.
-- Change grid sizing to allow finer adjustment for placement.
+- Add attack functionality to towers so placed defensive buildings can acquire targets and make ranged attacks.
+- Start the first-pass ranged combat system, including projectile definitions and generic projectile behavior.
+- Replace Scout-built `Spawner` and `Exit Point` flow with dedicated map-level spawn and end points.
+- Add separate movement types, starting with `ground` and `flying`, and define how each interacts with pathing and blockers.

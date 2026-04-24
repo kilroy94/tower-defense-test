@@ -10,6 +10,7 @@ enum EnemyState {
 const COLLISION_LAYER_WORLD := 1 << 0
 const COLLISION_LAYER_BLOCKS_ENEMIES := 1 << 2
 const ACTION_EXIT_ENEMY := "exit_enemy"
+const CombatUtilsRef = preload("res://scripts/systems/combat_utils.gd")
 
 @export var grid_path: NodePath
 @export var enemy_id := "grunt"
@@ -22,8 +23,11 @@ const ACTION_EXIT_ENEMY := "exit_enemy"
 @export var max_health := 100
 @export var damage := 5
 @export var armor := 0
+@export var attack_type := "melee"
+@export var attack_speed := 1.0
 @export var attack_range := 1.0
 @export var attack_cooldown := 1.5
+@export var projectile_id := ""
 @export var collision_radius := 0.45
 @export var collision_height := 1.7
 @export var portrait_camera_offset: Vector3 = Vector3(0.0, 1.45, 4.0)
@@ -43,35 +47,47 @@ var _target_cell := Vector2i.ZERO
 var _target_world_position := Vector3.ZERO
 var _state := EnemyState.IDLE
 var _goal_building: Node = null
+var _attack_target_building: Node3D = null
 var _ai_poll_timer := 0.0
+var _attack_cooldown_remaining := 0.0
 
 
 func _ready() -> void:
 	_apply_enemy_data()
 	collision_mask = COLLISION_LAYER_WORLD | COLLISION_LAYER_BLOCKS_ENEMIES
 	add_to_group("rts_enemies")
+	current_health = -1 if max_health < 0 else max_health
 	set_meta("enemy_id", enemy_id)
 	set_meta("enemy_name", enemy_name)
+	set_meta("stats", _get_runtime_stats())
 	set_meta("max_health", max_health)
+	set_meta("current_health", current_health)
 	set_meta("damage", damage)
 	set_meta("armor", armor)
+	set_meta("attack_type", attack_type)
+	set_meta("attack_speed", attack_speed)
 	set_meta("attack_range", attack_range)
 	set_meta("attack_cooldown", attack_cooldown)
+	set_meta("projectile_id", projectile_id)
 	set_meta("portrait_camera_offset", portrait_camera_offset)
 	set_meta("portrait_camera_target", portrait_camera_target)
 	set_meta("portrait_camera_fov", portrait_camera_fov)
-	current_health = max_health
 	_create_visuals()
 
 
 func _physics_process(delta: float) -> void:
 	_update_default_ai(delta)
+	_update_attack_cooldown(delta)
+	if _try_attack_building_in_range():
+		return
+
 	if _state == EnemyState.MOVING_TO_GOAL:
 		_follow_path(delta)
 
 
 func issue_goal_order(target_world_position: Vector3) -> bool:
 	_goal_building = null
+	_attack_target_building = null
 	_target_world_position = _with_enemy_height(target_world_position)
 	_target_cell = map_grid.world_to_cell(_target_world_position)
 	_rebuild_path_to_target()
@@ -85,6 +101,7 @@ func issue_goal_order(target_world_position: Vector3) -> bool:
 
 func clear_goal_order() -> void:
 	_goal_building = null
+	_attack_target_building = null
 	_path.clear()
 	_cell_path.clear()
 	_path_index = 0
@@ -98,6 +115,39 @@ func get_current_cell() -> Vector2i:
 
 func get_state() -> int:
 	return _state
+
+
+func get_health() -> int:
+	return current_health
+
+
+func get_max_health() -> int:
+	return max_health
+
+
+func set_health(new_health: int) -> void:
+	current_health = -1 if max_health < 0 else clampi(new_health, 0, max_health)
+	_sync_runtime_stats_meta()
+
+
+func get_attack_range() -> float:
+	return attack_range
+
+
+func can_attack_target(target: Node) -> bool:
+	return CombatUtilsRef.is_target_valid(self, target)
+
+
+func is_target_in_attack_range(target: Node3D) -> bool:
+	return CombatUtilsRef.is_target_in_attack_range(self, target)
+
+
+func get_distance_to_attack_target(target: Node3D) -> float:
+	return CombatUtilsRef.get_horizontal_distance_to_target(self, target)
+
+
+func try_melee_attack(target: Node3D) -> Dictionary:
+	return CombatUtilsRef.perform_melee_attack(self, target)
 
 
 func _apply_enemy_data() -> void:
@@ -120,8 +170,11 @@ func _apply_enemy_data() -> void:
 	max_health = int(stats.get("max_health", max_health))
 	damage = int(stats.get("damage", damage))
 	armor = int(stats.get("armor", armor))
+	attack_type = String(stats.get("attack_type", attack_type))
+	attack_speed = float(stats.get("attack_speed", attack_speed))
 	attack_range = float(stats.get("attack_range", attack_range))
 	attack_cooldown = float(stats.get("attack_cooldown", attack_cooldown))
+	projectile_id = String(stats.get("projectile_id", projectile_id))
 
 	var collision: Dictionary = definition.get("collision", {})
 	collision_radius = float(collision.get("radius", collision_radius))
@@ -136,22 +189,100 @@ func _apply_enemy_data() -> void:
 	ai_poll_interval = float(ai.get("poll_interval", ai_poll_interval))
 
 
+func _get_runtime_stats() -> Dictionary:
+	return {
+		"max_health": max_health,
+		"current_health": current_health,
+		"damage": damage,
+		"armor": armor,
+		"attack_type": attack_type,
+		"attack_speed": attack_speed,
+		"attack_range": attack_range,
+		"attack_cooldown": attack_cooldown,
+		"projectile_id": projectile_id
+	}
+
+
+func _sync_runtime_stats_meta() -> void:
+	set_meta("stats", _get_runtime_stats())
+	set_meta("current_health", current_health)
+
+
 func _update_default_ai(delta: float) -> void:
 	if not _should_path_to_exit():
 		return
 
 	_ai_poll_timer -= delta
+	_clear_invalid_cached_targets()
+	if _ai_poll_timer > 0.0:
+		return
+
+	_ai_poll_timer = ai_poll_interval
+	_update_attack_target()
 	if _state == EnemyState.MOVING_TO_GOAL and _is_goal_building_valid():
 		return
 
 	if _state == EnemyState.MOVING_TO_GOAL and not _is_goal_building_valid():
 		clear_goal_order()
 
-	if _ai_poll_timer > 0.0:
-		return
-
-	_ai_poll_timer = ai_poll_interval
 	_try_path_to_exit_point()
+
+
+func _update_attack_cooldown(delta: float) -> void:
+	_attack_cooldown_remaining = maxf(_attack_cooldown_remaining - delta, 0.0)
+
+
+func _try_attack_building_in_range() -> bool:
+	if attack_type != "melee":
+		return false
+
+	var target_building := _get_active_attack_target()
+	if target_building == null:
+		return false
+
+	if not is_target_in_attack_range(target_building):
+		return false
+
+	_face_attack_target(target_building)
+	velocity = Vector3.ZERO
+	if _attack_cooldown_remaining > 0.0:
+		return true
+
+	var attack_result := try_melee_attack(target_building)
+	if bool(attack_result.get("success", false)):
+		_attack_cooldown_remaining = attack_cooldown
+
+	return true
+
+
+func _update_attack_target() -> void:
+	if _attack_target_building != null:
+		if _is_attack_target_valid(_attack_target_building):
+			return
+
+		_attack_target_building = null
+
+	_attack_target_building = _find_attackable_building_in_range()
+
+
+func _get_active_attack_target() -> Node3D:
+	if _attack_target_building != null and _is_attack_target_valid(_attack_target_building):
+		return _attack_target_building
+
+	_attack_target_building = null
+	return null
+
+
+func _is_attack_target_valid(target: Node3D) -> bool:
+	return is_instance_valid(target) and can_attack_target(target)
+
+
+func _clear_invalid_cached_targets() -> void:
+	if _goal_building != null and not is_instance_valid(_goal_building):
+		_goal_building = null
+
+	if _attack_target_building != null and not is_instance_valid(_attack_target_building):
+		_attack_target_building = null
 
 
 func _should_path_to_exit() -> bool:
@@ -167,6 +298,7 @@ func _try_path_to_exit_point() -> void:
 
 	var goal_position_result := _get_goal_position_for_building(exit_point)
 	if goal_position_result.is_empty():
+		_try_path_to_blocking_building(exit_point)
 		return
 
 	_goal_building = exit_point
@@ -174,10 +306,153 @@ func _try_path_to_exit_point() -> void:
 	_target_cell = map_grid.world_to_cell(_target_world_position)
 	_rebuild_path_to_target()
 	if _path.is_empty():
+		_try_path_to_blocking_building(exit_point)
+		return
+
+	_state = EnemyState.MOVING_TO_GOAL
+
+
+func _try_path_to_blocking_building(goal_building: Node) -> void:
+	var obstruction_result := _find_blocking_building_to_attack(goal_building)
+	if obstruction_result.is_empty():
+		_state = EnemyState.IDLE
+		return
+
+	_goal_building = obstruction_result["building"]
+	_attack_target_building = obstruction_result["building"]
+	_target_cell = obstruction_result["cell"]
+	_target_world_position = _get_attack_world_position_for_cell(_attack_target_building, _target_cell)
+	_rebuild_path_to_target()
+	if _path.is_empty():
 		_state = EnemyState.IDLE
 		return
 
 	_state = EnemyState.MOVING_TO_GOAL
+
+
+func _find_blocking_building_to_attack(goal_building: Node) -> Dictionary:
+	if not goal_building.has_meta("grid_anchor_cell") or not goal_building.has_meta("grid_footprint"):
+		return {}
+
+	var start_cell := get_current_cell()
+	var frontier: Array[Vector2i] = [start_cell]
+	var visited: Dictionary = {start_cell: true}
+	var best_building: Node3D = null
+	var best_attack_cell := Vector2i.ZERO
+	var best_goal_distance := INF
+	var best_enemy_distance := INF
+	var goal_anchor: Vector2i = goal_building.get_meta("grid_anchor_cell")
+	var goal_footprint: Vector2i = goal_building.get_meta("grid_footprint")
+
+	while not frontier.is_empty():
+		var cell: Vector2i = frontier.pop_front()
+		var neighbor_offsets: Array[Vector2i] = [Vector2i.RIGHT, Vector2i.LEFT, Vector2i.DOWN, Vector2i.UP]
+		for offset in neighbor_offsets:
+			var neighbor: Vector2i = cell + offset
+			if not map_grid.is_cell_in_bounds(neighbor):
+				continue
+
+			if _is_enemy_cell_walkable(neighbor):
+				if not visited.has(neighbor):
+					visited[neighbor] = true
+					frontier.append(neighbor)
+				continue
+
+			var occupant: Variant = map_grid.get_occupant(neighbor)
+			if not (occupant is Node3D):
+				continue
+
+			if not can_attack_target(occupant):
+				continue
+
+			var occupant_goal_distance := _get_building_distance_to_goal(occupant, goal_anchor, goal_footprint)
+			var occupant_enemy_distance := float(abs(cell.x - start_cell.x) + abs(cell.y - start_cell.y))
+			if occupant_goal_distance < best_goal_distance \
+				or (is_equal_approx(occupant_goal_distance, best_goal_distance) and occupant_enemy_distance < best_enemy_distance):
+				best_goal_distance = occupant_goal_distance
+				best_enemy_distance = occupant_enemy_distance
+				best_building = occupant
+				best_attack_cell = cell
+
+	if best_building == null:
+		return {}
+
+	return {
+		"building": best_building,
+		"cell": best_attack_cell
+	}
+
+
+func _get_attack_world_position_for_cell(target_building: Node3D, attack_cell: Vector2i) -> Vector3:
+	var attack_position := map_grid.cell_to_world(attack_cell, global_position.y)
+	var direction_to_building := target_building.global_position - attack_position
+	direction_to_building.y = 0.0
+	if direction_to_building.length_squared() <= 0.0001:
+		return _with_enemy_height(attack_position)
+
+	var max_offset := maxf((map_grid.cell_size * 0.5) - 0.05, 0.0)
+	var adjusted_position := attack_position + (direction_to_building.normalized() * max_offset)
+	return _with_enemy_height(adjusted_position)
+
+
+func _get_building_distance_to_goal(building: Node, goal_anchor: Vector2i, goal_footprint: Vector2i) -> float:
+	if not building.has_meta("grid_anchor_cell") or not building.has_meta("grid_footprint"):
+		return INF
+
+	var building_anchor: Vector2i = building.get_meta("grid_anchor_cell")
+	var building_footprint: Vector2i = building.get_meta("grid_footprint")
+	var best_distance := INF
+	for building_cell in map_grid.get_footprint_cells(building_anchor, building_footprint):
+		for goal_cell in map_grid.get_footprint_cells(goal_anchor, goal_footprint):
+			var distance := float(abs(building_cell.x - goal_cell.x) + abs(building_cell.y - goal_cell.y))
+			if distance < best_distance:
+				best_distance = distance
+
+	return best_distance
+
+
+func _find_attackable_building_in_range() -> Node3D:
+	var preferred_target := _get_preferred_attack_target()
+	if preferred_target != null:
+		return preferred_target
+
+	var best_target: Node3D = null
+	var best_distance := INF
+	for building in get_tree().get_nodes_in_group("rts_buildings"):
+		if not (building is Node3D):
+			continue
+
+		if not can_attack_target(building):
+			continue
+
+		if not is_target_in_attack_range(building):
+			continue
+
+		var distance := get_distance_to_attack_target(building)
+		if distance < best_distance:
+			best_distance = distance
+			best_target = building
+
+	return best_target
+
+
+func _get_preferred_attack_target() -> Node3D:
+	if _goal_building == null or not is_instance_valid(_goal_building):
+		return null
+
+	if _goal_building is Node3D and can_attack_target(_goal_building) and is_target_in_attack_range(_goal_building):
+		return _goal_building
+
+	return null
+
+
+func _face_attack_target(target: Node3D) -> void:
+	var direction := target.global_position - global_position
+	direction.y = 0.0
+	if direction.length_squared() <= 0.0001:
+		return
+
+	look_at(global_position + direction.normalized(), Vector3.UP)
 
 
 func _find_exit_point() -> Node:
@@ -292,7 +567,7 @@ func _rebuild_path_to_target() -> void:
 	_path = _smooth_path(raw_path)
 
 
-func _follow_path(delta: float) -> void:
+func _follow_path(_delta: float) -> void:
 	if _path_index >= _path.size():
 		_complete_goal_order()
 		return
@@ -314,6 +589,7 @@ func _follow_path(delta: float) -> void:
 		velocity = Vector3.ZERO
 
 	var travel_direction := global_position - previous_position
+	travel_direction.y = 0.0
 	if travel_direction.length_squared() > 0.0001:
 		look_at(global_position + travel_direction.normalized(), Vector3.UP)
 

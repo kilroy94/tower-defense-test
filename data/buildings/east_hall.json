@@ -10,7 +10,7 @@
     "damage": 0,
     "armor": 3
   },
-  "footprint": [2, 1],
+  "footprint": [4, 2],
   "hotkey": "H",
   "fallback_hotkey": "E",
   "size": [6.4, 4.0, 2.8],
@@ -19,5 +19,8 @@
     "offset": [0.0, 3.2, 9.0],
     "target": [0.0, 1.9, 0.0],
     "fov": 42.0
+  },
+  "audio": {
+    "death": "res://assets/audio/sfx/vo/Miscellaneous/Buildings/Death/BuildingDeath.wav"
   }
 }

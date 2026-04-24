@@ -3,6 +3,7 @@ extends CharacterBody3D
 
 signal action_queue_changed(queue: Array[Dictionary])
 
+const CombatUtilsRef = preload("res://scripts/systems/combat_utils.gd")
 const VOICE_TYPE_NONE := ""
 const VOICE_TYPE_SELECTION := "selection"
 const VOICE_TYPE_MOVE_ORDER := "move_order"
@@ -24,8 +25,11 @@ const COLLISION_LAYER_BLOCKS_UNITS := 1 << 1
 @export var max_health := 220
 @export var damage := 8
 @export var armor := 0
+@export var attack_type := "melee"
+@export var attack_speed := 1.0
 @export var attack_range := 1.2
 @export var attack_cooldown := 1.4
+@export var projectile_id := ""
 @export var portrait_camera_offset: Vector3 = Vector3(0.0, 1.45, 4.0)
 @export var portrait_camera_target: Vector3 = Vector3(0.0, 0.8, 0.0)
 @export var portrait_camera_fov: float = 36.0
@@ -47,6 +51,7 @@ const COLLISION_LAYER_BLOCKS_UNITS := 1 << 1
 
 @onready var map_grid: MapGrid = get_node(grid_path)
 
+var current_health := 220
 var _path: Array[Vector3] = []
 var _cell_path: Array[Vector2i] = []
 var _path_index := 0
@@ -73,14 +78,20 @@ func _ready() -> void:
 	_apply_unit_data()
 	collision_mask = COLLISION_LAYER_WORLD | COLLISION_LAYER_BLOCKS_UNITS
 	add_to_group("rts_units")
+	current_health = -1 if max_health < 0 else max_health
 	set_meta("unit_name", unit_name)
 	set_meta("unit_id", unit_id)
 	set_meta("cost", _cost)
+	set_meta("stats", _get_runtime_stats())
 	set_meta("max_health", max_health)
+	set_meta("current_health", current_health)
 	set_meta("damage", damage)
 	set_meta("armor", armor)
+	set_meta("attack_type", attack_type)
+	set_meta("attack_speed", attack_speed)
 	set_meta("attack_range", attack_range)
 	set_meta("attack_cooldown", attack_cooldown)
+	set_meta("projectile_id", projectile_id)
 	_voice_rng.randomize()
 	_create_visuals()
 	_create_voice_player()
@@ -148,6 +159,39 @@ func get_cost() -> Dictionary:
 	return _cost
 
 
+func get_health() -> int:
+	return current_health
+
+
+func get_max_health() -> int:
+	return max_health
+
+
+func set_health(new_health: int) -> void:
+	current_health = -1 if max_health < 0 else clampi(new_health, 0, max_health)
+	_sync_runtime_stats_meta()
+
+
+func get_attack_range() -> float:
+	return attack_range
+
+
+func can_attack_target(target: Node) -> bool:
+	return CombatUtilsRef.is_target_valid(self, target)
+
+
+func is_target_in_attack_range(target: Node3D) -> bool:
+	return CombatUtilsRef.is_target_in_attack_range(self, target)
+
+
+func get_distance_to_attack_target(target: Node3D) -> float:
+	return CombatUtilsRef.get_horizontal_distance_to_target(self, target)
+
+
+func try_melee_attack(target: Node3D) -> Dictionary:
+	return CombatUtilsRef.perform_melee_attack(self, target)
+
+
 func get_available_building_ids() -> Array[String]:
 	return _available_building_ids
 
@@ -200,7 +244,7 @@ func _rebuild_path_to_target() -> void:
 	_path = _smooth_path(raw_path)
 
 
-func _follow_path(delta: float) -> void:
+func _follow_path(_delta: float) -> void:
 	if _path_index >= _path.size():
 		_complete_move_order()
 		return
@@ -286,8 +330,11 @@ func _apply_unit_data() -> void:
 	max_health = int(stats.get("max_health", max_health))
 	damage = int(stats.get("damage", damage))
 	armor = int(stats.get("armor", armor))
+	attack_type = String(stats.get("attack_type", attack_type))
+	attack_speed = float(stats.get("attack_speed", attack_speed))
 	attack_range = float(stats.get("attack_range", attack_range))
 	attack_cooldown = float(stats.get("attack_cooldown", attack_cooldown))
+	projectile_id = String(stats.get("projectile_id", projectile_id))
 
 	var portrait_camera: Dictionary = definition.get("portrait_camera", {})
 	portrait_camera_offset = portrait_camera.get("offset", portrait_camera_offset)
@@ -308,6 +355,25 @@ func _apply_unit_data() -> void:
 	_angry_voice_lines = GameData.load_audio_streams(audio.get("angry", []))
 	if audio.has("cannot_build"):
 		_cannot_build_voice_line = GameData.load_audio_stream(String(audio["cannot_build"]))
+
+
+func _get_runtime_stats() -> Dictionary:
+	return {
+		"max_health": max_health,
+		"current_health": current_health,
+		"damage": damage,
+		"armor": armor,
+		"attack_type": attack_type,
+		"attack_speed": attack_speed,
+		"attack_range": attack_range,
+		"attack_cooldown": attack_cooldown,
+		"projectile_id": projectile_id
+	}
+
+
+func _sync_runtime_stats_meta() -> void:
+	set_meta("stats", _get_runtime_stats())
+	set_meta("current_health", current_health)
 
 
 func _start_action(action: Dictionary) -> bool:

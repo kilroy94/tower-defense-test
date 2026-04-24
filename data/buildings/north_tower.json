@@ -6,13 +6,16 @@
     "lumber": 30
   },
   "stats": {
-    "max_health": 650,
+    "max_health": 50,
     "damage": 22,
     "armor": 2,
+    "attack_type": "ranged",
+    "attack_speed": 0.6667,
     "attack_range": 8.0,
-    "attack_cooldown": 1.5
+    "attack_cooldown": 1.5,
+    "projectile_id": "basic_arrow"
   },
-  "footprint": [1, 1],
+  "footprint": [2, 2],
   "hotkey": "N",
   "fallback_hotkey": "T",
   "size": [2.0, 6.0, 2.0],
@@ -21,5 +24,8 @@
     "offset": [0.0, 4.1, 8.4],
     "target": [0.0, 2.6, 0.0],
     "fov": 34.0
+  },
+  "audio": {
+    "death": "res://assets/audio/sfx/vo/Miscellaneous/Buildings/Death/BuildingDeath.wav"
   }
 }

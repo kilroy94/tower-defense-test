@@ -14,6 +14,7 @@ signal portrait_double_clicked
 @onready var portrait_camera: Camera3D = get_node(portrait_camera_path)
 @onready var name_label: Label = get_node(name_label_path)
 
+var _health_label: Label
 var _queue_strip: HBoxContainer
 var _queue_cells: Array[PanelContainer] = []
 var _queue_viewport_containers: Array[SubViewportContainer] = []
@@ -24,6 +25,7 @@ var _queue_cameras: Array[Camera3D] = []
 func _ready() -> void:
 	portrait_click_target.mouse_filter = Control.MOUSE_FILTER_STOP
 	portrait_click_target.gui_input.connect(_on_portrait_gui_input)
+	_create_health_label()
 	_create_queue_strip()
 	clear_selection()
 
@@ -31,6 +33,7 @@ func _ready() -> void:
 func show_unit(unit: RtsUnit) -> void:
 	_clear_portrait()
 	name_label.text = unit.unit_name
+	_show_health_values(unit.get_health(), unit.get_max_health())
 	show_action_queue(unit.get_action_queue())
 
 	var capsule := MeshInstance3D.new()
@@ -47,6 +50,7 @@ func show_unit(unit: RtsUnit) -> void:
 func show_enemy(enemy: RtsEnemy) -> void:
 	_clear_portrait()
 	name_label.text = enemy.enemy_name
+	_show_health_values(enemy.get_health(), enemy.get_max_health())
 	show_action_queue([])
 
 	var capsule := MeshInstance3D.new()
@@ -63,6 +67,7 @@ func show_enemy(enemy: RtsEnemy) -> void:
 func show_building(building: Node) -> void:
 	_clear_portrait()
 	name_label.text = String(building.get_meta("building_name", "Building"))
+	_show_node_health(building)
 	show_action_queue([])
 
 	var box := MeshInstance3D.new()
@@ -82,8 +87,17 @@ func show_building(building: Node) -> void:
 func clear_selection() -> void:
 	_clear_portrait()
 	name_label.text = "No selection"
+	_hide_health_label()
 	show_action_queue([])
 	_apply_portrait_camera(Vector3(0.0, 1.45, 4.0), Vector3(0.0, 0.8, 0.0), 36.0)
+
+
+func refresh_health_display(node: Node) -> void:
+	if node == null or not is_instance_valid(node):
+		_hide_health_label()
+		return
+
+	_show_node_health(node)
 
 
 func show_action_queue(action_queue: Array[Dictionary]) -> void:
@@ -159,12 +173,21 @@ func _apply_portrait_camera(offset: Vector3, target: Vector3, fov: float) -> voi
 
 
 func _create_material(color: Color) -> StandardMaterial3D:
-	var material := StandardMaterial3D.new()
+	var surface_material := StandardMaterial3D.new()
 	if color.a < 1.0:
-		material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	material.albedo_color = color
-	material.roughness = 0.65
-	return material
+		surface_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	surface_material.albedo_color = color
+	surface_material.roughness = 0.65
+	return surface_material
+
+
+func _create_health_label() -> void:
+	_health_label = Label.new()
+	_health_label.name = "HealthLabel"
+	_health_label.visible = false
+	_health_label.add_theme_font_size_override("font_size", 16)
+	_health_label.add_theme_color_override("font_color", Color(0.76, 0.9, 0.72, 1.0))
+	name_label.get_parent().add_child(_health_label)
 
 
 func _create_queue_strip() -> void:
@@ -239,6 +262,30 @@ func _create_queue_cell_style(color: Color) -> StyleBoxFlat:
 	style.content_margin_right = 4.0
 	style.content_margin_bottom = 3.0
 	return style
+
+
+func _show_node_health(node: Node) -> void:
+	if not node.has_meta("current_health") or not node.has_meta("max_health"):
+		_hide_health_label()
+		return
+
+	_show_health_values(int(node.get_meta("current_health")), int(node.get_meta("max_health")))
+
+
+func _show_health_values(current_health: int, max_health: int) -> void:
+	if max_health < 0:
+		_health_label.text = "Invincible"
+	else:
+		_health_label.text = "%d/%d" % [current_health, max_health]
+	_health_label.visible = true
+
+
+func _hide_health_label() -> void:
+	if _health_label == null:
+		return
+
+	_health_label.visible = false
+	_health_label.text = ""
 
 
 func _get_queue_label(action_label: String) -> String:

@@ -10,8 +10,11 @@
     "max_health": 220,
     "damage": 8,
     "armor": 0,
+    "attack_type": "melee",
+    "attack_speed": 0.7143,
     "attack_range": 1.2,
-    "attack_cooldown": 1.4
+    "attack_cooldown": 1.4,
+    "projectile_id": ""
   },
   "movement": {
     "move_speed": 10.0,

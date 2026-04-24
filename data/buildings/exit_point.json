@@ -6,11 +6,11 @@
     "lumber": 20
   },
   "stats": {
-    "max_health": 1000,
+    "max_health": -1,
     "damage": 0,
     "armor": 0
   },
-  "footprint": [2, 2],
+  "footprint": [4, 4],
   "hotkey": "X",
   "fallback_hotkey": "I",
   "pathable": true,

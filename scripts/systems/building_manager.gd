@@ -21,6 +21,7 @@ const ACTOR_TYPE_UNIT := "unit"
 const ACTOR_TYPE_ENEMY := "enemy"
 const COLLISION_LAYER_BLOCKS_UNITS := 1 << 1
 const COLLISION_LAYER_BLOCKS_ENEMIES := 1 << 2
+const MAINTENANCE_INTERVAL := 0.1
 
 @export var grid_path: NodePath
 @export var camera_rig_path: NodePath
@@ -58,6 +59,7 @@ var _building_audio_rng := RandomNumberGenerator.new()
 var _last_scout_hotkey_msec := 0
 var _queue_display_unit: RtsUnit = null
 var _all_building_options: Array[Dictionary] = []
+var _maintenance_timer := 0.0
 
 
 func _ready() -> void:
@@ -74,9 +76,17 @@ func _ready() -> void:
 	_set_interaction_state(InteractionState.SELECTING)
 
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
 	if _selected_unit != null or _selected_enemy != null:
 		_update_selection_ring()
+
+	_maintenance_timer -= delta
+	if _maintenance_timer > 0.0:
+		return
+
+	_maintenance_timer = MAINTENANCE_INTERVAL
+	_remove_destroyed_buildings()
+	_refresh_selection_health_display()
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -148,7 +158,7 @@ func _set_interaction_state(new_state: int) -> void:
 		_play_invalid_order_feedback()
 		new_state = InteractionState.SELECTING
 
-	_interaction_state = new_state
+	_interaction_state = new_state as InteractionState
 	placement_preview.set_display_enabled(_interaction_state == InteractionState.BUILDING)
 	if _selected_unit != null:
 		if _interaction_state == InteractionState.BUILDING:
@@ -347,12 +357,23 @@ func _place_building(building: Dictionary, anchor_cell: Vector2i) -> void:
 	var building_body := _create_building_body(building)
 	var building_name := String(building["name"])
 	var building_id := String(building.get("id", building_name.to_snake_case()))
+	var building_stats: Dictionary = building.get("stats", {})
+	var max_health := int(building_stats.get("max_health", 0))
 	building_body.add_to_group("rts_buildings")
 	building_body.add_to_group("rts_building_%s" % building_id)
 	building_body.set_meta("building_id", building_id)
 	building_body.set_meta("building_name", building_name)
 	building_body.set_meta("cost", building.get("cost", {}))
 	building_body.set_meta("stats", building.get("stats", {}))
+	building_body.set_meta("max_health", max_health)
+	building_body.set_meta("current_health", max_health)
+	building_body.set_meta("damage", int(building_stats.get("damage", 0)))
+	building_body.set_meta("armor", int(building_stats.get("armor", 0)))
+	building_body.set_meta("attack_type", String(building_stats.get("attack_type", "melee")))
+	building_body.set_meta("attack_speed", float(building_stats.get("attack_speed", 0.0)))
+	building_body.set_meta("attack_range", float(building_stats.get("attack_range", 0.0)))
+	building_body.set_meta("attack_cooldown", float(building_stats.get("attack_cooldown", 0.0)))
+	building_body.set_meta("projectile_id", String(building_stats.get("projectile_id", "")))
 	building_body.set_meta("commands", building.get("commands", []))
 	building_body.set_meta("pathable", bool(building.get("pathable", false)))
 	building_body.set_meta("walkable_by", building.get("walkable_by", []))
@@ -361,9 +382,10 @@ func _place_building(building: Dictionary, anchor_cell: Vector2i) -> void:
 	building_body.set_meta("portrait_camera_offset", building["portrait_camera_offset"])
 	building_body.set_meta("portrait_camera_target", building["portrait_camera_target"])
 	building_body.set_meta("portrait_camera_fov", building["portrait_camera_fov"])
+	building_body.set_meta("death_sound_path", String((building.get("audio", {}) as Dictionary).get("death", "")))
 	building_body.set_meta("grid_anchor_cell", anchor_cell)
 	building_body.set_meta("grid_footprint", footprint)
-	building_body.global_position = map_grid.footprint_to_world_center(
+	building_body.position = map_grid.footprint_to_world_center(
 		anchor_cell,
 		footprint,
 		size.y * 0.5
@@ -381,7 +403,7 @@ func _create_queued_building_ghost(building: Dictionary, anchor_cell: Vector2i) 
 	ghost.set_meta("queued_building_name", String(building["name"]))
 	ghost.set_meta("grid_anchor_cell", anchor_cell)
 	ghost.set_meta("grid_footprint", footprint)
-	ghost.global_position = map_grid.footprint_to_world_center(anchor_cell, footprint, size.y * 0.5)
+	ghost.position = map_grid.footprint_to_world_center(anchor_cell, footprint, size.y * 0.5)
 
 	var mesh_instance := MeshInstance3D.new()
 	var box_mesh := BoxMesh.new()
@@ -451,6 +473,9 @@ func _issue_selected_unit_move_order() -> void:
 
 
 func _delete_building(building_node: Node, anchor_cell: Vector2i, footprint: Vector2i) -> void:
+	if building_node is Node3D:
+		_play_actor_death_sound(building_node)
+
 	if building_node == _selected_placed_building:
 		_selected_placed_building = null
 		selection_panel.clear_selection()
@@ -459,6 +484,49 @@ func _delete_building(building_node: Node, anchor_cell: Vector2i, footprint: Vec
 	map_grid.release(anchor_cell, footprint)
 	building_node.queue_free()
 	_update_selection_ring()
+
+
+func _play_actor_death_sound(actor: Node3D) -> void:
+	var death_sound_path := String(actor.get_meta("death_sound_path", ""))
+	if death_sound_path.is_empty():
+		return
+
+	var death_sound := GameData.load_audio_stream(death_sound_path)
+	if death_sound == null:
+		return
+
+	AudioUtils.play_world_sound(self, actor.global_position, death_sound)
+
+
+func _remove_destroyed_buildings() -> void:
+	for building in get_tree().get_nodes_in_group("rts_buildings"):
+		if not (building is Node):
+			continue
+
+		var max_health := int(building.get_meta("max_health", 0))
+		var current_health := int(building.get_meta("current_health", 0))
+		if max_health < 0 or current_health > 0:
+			continue
+
+		if not building.has_meta("grid_anchor_cell") or not building.has_meta("grid_footprint"):
+			continue
+
+		var anchor_cell: Vector2i = building.get_meta("grid_anchor_cell")
+		var footprint: Vector2i = building.get_meta("grid_footprint")
+		_delete_building(building, anchor_cell, footprint)
+
+
+func _refresh_selection_health_display() -> void:
+	if _selected_unit != null and is_instance_valid(_selected_unit):
+		selection_panel.refresh_health_display(_selected_unit)
+		return
+
+	if _selected_enemy != null and is_instance_valid(_selected_enemy):
+		selection_panel.refresh_health_display(_selected_enemy)
+		return
+
+	if _selected_placed_building != null and is_instance_valid(_selected_placed_building):
+		selection_panel.refresh_health_display(_selected_placed_building)
 
 
 func _get_building_on_current_cell() -> Node:

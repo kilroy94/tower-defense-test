@@ -16,6 +16,18 @@ The current build menu is a simple 3x3 grid with the final slot reserved for Bac
 
 Enemies should be unit-like but not player-controllable. Their generic behavior belongs in enemy scripts, while individual enemy stats, movement, collision, bounty, visuals, and AI profiles belong in per-enemy JSON files.
 
+Combat should be data-driven at the object-definition level and generic in runtime behavior. Units, enemies, and buildings should all describe their combat tuning through their own JSON data while shared attack processing lives in reusable combat systems.
+
+Attack delivery should distinguish between `melee` and `ranged` rather than hardcoding separate behavior trees per actor type. Melee attacks resolve directly when their checks pass, while ranged attacks spawn projectile actors that track targets and apply damage on impact.
+
+`attack_cooldown` is the gameplay-facing combat cadence stat. It determines when another attack can be used after the current attack completes. `attack_speed` is a separate presentation-oriented stat reserved for attack animation timing when animation support is added.
+
+`max_health = -1` is the shared data-driven marker for invincibility. Invincible actors should remain selectable and visible to the player, but attack targeting and damage resolution should ignore them.
+
+Death and destruction sounds should be data-driven per actor definition through an `audio.death` field, while generic world-audio playback stays in shared runtime helpers.
+
+Projectile definitions should live in small JSON files under `data/projectiles/`, following the same pattern used for units, enemies, and buildings. Generic projectile movement, target tracking, and impact handling should live in shared code.
+
 Building commands should be data-driven in each building JSON file, while shared runtime behavior for those commands belongs in generic systems such as `BuildingActionSystem`.
 
 Grid occupancy separates placement occupancy from path blocking. A pathable building still prevents another building from being placed on its footprint, but it does not block pathfinding.
@@ -25,6 +37,8 @@ Enemy pathfinding uses a stricter filtered walkability check than the generic gr
 Building physics collision is also data-driven. `walkable_by` controls which actor types can physically pass through a building, independently from grid pathability.
 
 Command hotkeys are data-driven. The command grid owns `1` through `9` as universal slot hotkeys, while command-specific letter hotkeys come from `hotkey` and resolve conflicts with `fallback_hotkey`.
+
+The map grid now favors finer placement granularity without changing the world's physical scale. The current baseline is `60 x 60` cells at `2.0` world units per cell, and legacy building footprints should be doubled on each axis to preserve their existing world-space size.
 
 Current entry points:
 - `data/units/scout.json`

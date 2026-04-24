@@ -1,9 +1,9 @@
 class_name MapGrid
 extends MeshInstance3D
 
-@export var map_size_cells: Vector2i = Vector2i(30, 30)
-@export var cell_size: float = 4.0
-@export var major_line_every: int = 5
+@export var map_size_cells: Vector2i = Vector2i(60, 60)
+@export var cell_size: float = 2.0
+@export var major_line_every: int = 10
 @export var minor_line_color: Color = Color(0.38, 0.46, 0.4, 0.5)
 @export var major_line_color: Color = Color(0.56, 0.64, 0.58, 0.8)
 

@@ -369,12 +369,12 @@ func _apply_model_camera(slot_index: int, model_data: Dictionary) -> void:
 
 
 func _create_model_material(color: Color) -> StandardMaterial3D:
-	var material := StandardMaterial3D.new()
+	var surface_material := StandardMaterial3D.new()
 	if color.a < 1.0:
-		material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	material.albedo_color = color
-	material.roughness = 0.65
-	return material
+		surface_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	surface_material.albedo_color = color
+	surface_material.roughness = 0.65
+	return surface_material
 
 
 func _create_button_style(background_color: Color, border_color: Color) -> StyleBoxFlat:

@@ -62,12 +62,26 @@ static func load_building_definitions(directory_path: String) -> Array[Dictionar
 static func _normalize_unit_definition(raw_definition: Dictionary) -> Dictionary:
 	var definition := raw_definition.duplicate(true)
 	definition["body_color"] = color_from_json(definition.get("body_color", [0.18, 0.78, 0.9, 1.0]))
+	definition["stats"] = _normalize_stats_definition(definition.get("stats", {}), {
+		"max_health": 100,
+		"damage": 0,
+		"armor": 0,
+		"attack_type": "melee",
+		"attack_speed": 1.0,
+		"attack_range": 1.2,
+		"attack_cooldown": 1.4,
+		"projectile_id": ""
+	})
 
 	var portrait_camera: Dictionary = definition.get("portrait_camera", {})
 	portrait_camera["offset"] = vector3_from_json(portrait_camera.get("offset", [0.0, 1.45, 4.0]))
 	portrait_camera["target"] = vector3_from_json(portrait_camera.get("target", [0.0, 0.8, 0.0]))
 	portrait_camera["fov"] = float(portrait_camera.get("fov", 36.0))
 	definition["portrait_camera"] = portrait_camera
+
+	var audio: Dictionary = definition.get("audio", {})
+	audio["death"] = String(audio.get("death", ""))
+	definition["audio"] = audio
 
 	var commands: Array[Dictionary] = []
 	for raw_command in definition.get("commands", []):
@@ -82,6 +96,16 @@ static func _normalize_enemy_definition(raw_definition: Dictionary) -> Dictionar
 	var definition := raw_definition.duplicate(true)
 	definition["body_color"] = color_from_json(definition.get("body_color", [0.75, 0.18, 0.18, 1.0]))
 	definition["marker_color"] = color_from_json(definition.get("marker_color", [0.12, 0.02, 0.02, 1.0]))
+	definition["stats"] = _normalize_stats_definition(definition.get("stats", {}), {
+		"max_health": 100,
+		"damage": 0,
+		"armor": 0,
+		"attack_type": "melee",
+		"attack_speed": 1.0,
+		"attack_range": 1.0,
+		"attack_cooldown": 1.5,
+		"projectile_id": ""
+	})
 
 	var collision: Dictionary = definition.get("collision", {})
 	collision["radius"] = float(collision.get("radius", 0.45))
@@ -99,6 +123,10 @@ static func _normalize_enemy_definition(raw_definition: Dictionary) -> Dictionar
 	portrait_camera["fov"] = float(portrait_camera.get("fov", 36.0))
 	definition["portrait_camera"] = portrait_camera
 
+	var audio: Dictionary = definition.get("audio", {})
+	audio["death"] = String(audio.get("death", ""))
+	definition["audio"] = audio
+
 	return definition
 
 
@@ -111,6 +139,16 @@ static func _normalize_building_definition(raw_definition: Dictionary) -> Dictio
 	definition["footprint"] = vector2i_from_json(definition.get("footprint", [1, 1]))
 	definition["size"] = vector3_from_json(definition.get("size", [2.0, 2.0, 2.0]))
 	definition["color"] = color_from_json(definition.get("color", [0.6, 0.6, 0.55, 1.0]))
+	definition["stats"] = _normalize_stats_definition(definition.get("stats", {}), {
+		"max_health": 500,
+		"damage": 0,
+		"armor": 0,
+		"attack_type": "melee",
+		"attack_speed": 0.0,
+		"attack_range": 0.0,
+		"attack_cooldown": 0.0,
+		"projectile_id": ""
+	})
 	definition["pathable"] = bool(definition.get("pathable", false))
 	definition["hotkey"] = String(definition.get("hotkey", ""))
 	definition["fallback_hotkey"] = String(definition.get("fallback_hotkey", ""))
@@ -125,6 +163,10 @@ static func _normalize_building_definition(raw_definition: Dictionary) -> Dictio
 	definition["portrait_camera_target"] = vector3_from_json(portrait_camera.get("target", [0.0, 1.0, 0.0]))
 	definition["portrait_camera_fov"] = float(portrait_camera.get("fov", 42.0))
 	definition.erase("portrait_camera")
+
+	var audio: Dictionary = definition.get("audio", {})
+	audio["death"] = String(audio.get("death", ""))
+	definition["audio"] = audio
 
 	var commands: Array[Dictionary] = []
 	for raw_command in definition.get("commands", []):
@@ -144,6 +186,27 @@ static func _normalize_command_definition(raw_definition: Dictionary) -> Diction
 	definition["fallback_hotkey"] = String(definition.get("fallback_hotkey", ""))
 
 	return definition
+
+
+static func _normalize_stats_definition(raw_stats: Variant, defaults: Dictionary) -> Dictionary:
+	var stats: Dictionary = {}
+	if raw_stats is Dictionary:
+		stats = (raw_stats as Dictionary).duplicate(true)
+
+	var normalized_defaults := defaults.duplicate(true)
+	for key in normalized_defaults.keys():
+		if not stats.has(key):
+			stats[key] = normalized_defaults[key]
+
+	stats["max_health"] = int(stats.get("max_health", normalized_defaults.get("max_health", 100)))
+	stats["damage"] = int(stats.get("damage", normalized_defaults.get("damage", 0)))
+	stats["armor"] = int(stats.get("armor", normalized_defaults.get("armor", 0)))
+	stats["attack_type"] = String(stats.get("attack_type", normalized_defaults.get("attack_type", "melee")))
+	stats["attack_speed"] = float(stats.get("attack_speed", normalized_defaults.get("attack_speed", 0.0)))
+	stats["attack_range"] = float(stats.get("attack_range", normalized_defaults.get("attack_range", 0.0)))
+	stats["attack_cooldown"] = float(stats.get("attack_cooldown", normalized_defaults.get("attack_cooldown", 0.0)))
+	stats["projectile_id"] = String(stats.get("projectile_id", normalized_defaults.get("projectile_id", "")))
+	return stats
 
 
 static func vector2i_from_json(value: Variant) -> Vector2i:
