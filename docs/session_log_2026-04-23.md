@@ -54,6 +54,7 @@
 - Increased grid resolution while preserving map scale by changing the baseline grid from `30 x 30` at `4.0` cell size to `60 x 60` at `2.0`, and scaled current building footprints to match.
 - Verified the project still loads with `godot.exe --headless --path . --quit`.
 - Recorded the local Godot executable paths in `PROJECT_CONTEXT.md` for future nightly work.
+- Added explicit `.gitignore` allow-rules for `PROJECT_CONTEXT.md` and `docs/` so shared notes remain safely trackable if broader ignore patterns are added later.
 
 ## Decisions And Notes
 
