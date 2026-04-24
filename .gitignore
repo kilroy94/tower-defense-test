@@ -7,7 +7,7 @@
 *.import
 export_presets.cfg
 
-# Keep project notes and working docs tracked.
-!PROJECT_CONTEXT.md
+# Keep shared working docs tracked, but keep local project context private.
+PROJECT_CONTEXT.md
 !docs/
 !docs/**

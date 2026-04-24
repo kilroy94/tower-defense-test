@@ -55,6 +55,7 @@
 - Verified the project still loads with `godot.exe --headless --path . --quit`.
 - Recorded the local Godot executable paths in `PROJECT_CONTEXT.md` for future nightly work.
 - Added explicit `.gitignore` allow-rules for `PROJECT_CONTEXT.md` and `docs/` so shared notes remain safely trackable if broader ignore patterns are added later.
+- Reversed `PROJECT_CONTEXT.md` tracking so it stays local-only, while `docs/` remains tracked in the repo.
 
 ## Decisions And Notes
 
