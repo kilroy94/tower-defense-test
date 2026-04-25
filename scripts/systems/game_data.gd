@@ -36,6 +36,43 @@ static func load_enemy_definition(path: String) -> Dictionary:
 	return _normalize_enemy_definition(definition)
 
 
+static func load_projectile_definition(path: String) -> Dictionary:
+	var definition := load_json_file(path)
+	if definition.is_empty() or _is_template_definition(definition):
+		return {}
+
+	return _normalize_projectile_definition(definition)
+
+
+static func load_projectile_definitions(directory_path: String) -> Dictionary:
+	var projectiles: Dictionary = {}
+	var directory := DirAccess.open(directory_path)
+	if directory == null:
+		push_warning("Could not open projectile data directory: %s" % directory_path)
+		return projectiles
+
+	var file_names := directory.get_files()
+	file_names.sort()
+	for file_name in file_names:
+		if not file_name.ends_with(".json"):
+			continue
+
+		var definition_path := directory_path.path_join(file_name)
+		var definition := load_json_file(definition_path)
+		if definition.is_empty() or _is_template_definition(definition):
+			continue
+
+		var normalized_definition := _normalize_projectile_definition(definition)
+		var projectile_id := String(normalized_definition.get("id", ""))
+		if projectile_id.is_empty():
+			push_warning("Projectile definition at %s is missing an id." % definition_path)
+			continue
+
+		projectiles[projectile_id] = normalized_definition
+
+	return projectiles
+
+
 static func load_building_definitions(directory_path: String) -> Array[Dictionary]:
 	var buildings: Array[Dictionary] = []
 	var directory := DirAccess.open(directory_path)
@@ -72,6 +109,13 @@ static func _normalize_unit_definition(raw_definition: Dictionary) -> Dictionary
 		"attack_cooldown": 1.4,
 		"projectile_id": ""
 	})
+
+	var movement: Dictionary = definition.get("movement", {})
+	movement["type"] = String(movement.get("type", "ground"))
+	movement["move_speed"] = float(movement.get("move_speed", 8.0))
+	movement["arrival_distance"] = float(movement.get("arrival_distance", 0.2))
+	movement["flight_height"] = float(movement.get("flight_height", 3.0))
+	definition["movement"] = movement
 
 	var portrait_camera: Dictionary = definition.get("portrait_camera", {})
 	portrait_camera["offset"] = vector3_from_json(portrait_camera.get("offset", [0.0, 1.45, 4.0]))
@@ -113,8 +157,10 @@ static func _normalize_enemy_definition(raw_definition: Dictionary) -> Dictionar
 	definition["collision"] = collision
 
 	var movement: Dictionary = definition.get("movement", {})
+	movement["type"] = String(movement.get("type", "ground"))
 	movement["move_speed"] = float(movement.get("move_speed", 7.0))
 	movement["arrival_distance"] = float(movement.get("arrival_distance", 0.2))
+	movement["flight_height"] = float(movement.get("flight_height", 3.0))
 	definition["movement"] = movement
 
 	var portrait_camera: Dictionary = definition.get("portrait_camera", {})
@@ -126,6 +172,26 @@ static func _normalize_enemy_definition(raw_definition: Dictionary) -> Dictionar
 	var audio: Dictionary = definition.get("audio", {})
 	audio["death"] = String(audio.get("death", ""))
 	definition["audio"] = audio
+
+	return definition
+
+
+static func _normalize_projectile_definition(raw_definition: Dictionary) -> Dictionary:
+	var definition := raw_definition.duplicate(true)
+	definition["id"] = String(definition.get("id", ""))
+	definition["name"] = String(definition.get("name", definition["id"]))
+	definition["travel_speed"] = maxf(float(definition.get("travel_speed", 18.0)), 0.01)
+	definition["turn_rate"] = maxf(float(definition.get("turn_rate", 0.0)), 0.0)
+	definition["impact_radius"] = maxf(float(definition.get("impact_radius", 0.35)), 0.01)
+	definition["lifetime"] = maxf(float(definition.get("lifetime", 4.0)), 0.01)
+	definition["launch_height"] = float(definition.get("launch_height", 2.8))
+	definition["target_height"] = float(definition.get("target_height", 0.9))
+
+	var visual: Dictionary = definition.get("visual", {})
+	visual["shape"] = String(visual.get("shape", "box"))
+	visual["size"] = vector3_from_json(visual.get("size", [0.16, 0.16, 0.75]))
+	visual["color"] = color_from_json(visual.get("color", [0.85, 0.62, 0.28, 1.0]))
+	definition["visual"] = visual
 
 	return definition
 
@@ -199,6 +265,7 @@ static func _normalize_stats_definition(raw_stats: Variant, defaults: Dictionary
 			stats[key] = normalized_defaults[key]
 
 	stats["max_health"] = int(stats.get("max_health", normalized_defaults.get("max_health", 100)))
+	stats["health_regen_per_second"] = maxf(float(stats.get("health_regen_per_second", normalized_defaults.get("health_regen_per_second", 0.0))), 0.0)
 	stats["damage"] = int(stats.get("damage", normalized_defaults.get("damage", 0)))
 	stats["armor"] = int(stats.get("armor", normalized_defaults.get("armor", 0)))
 	stats["attack_type"] = String(stats.get("attack_type", normalized_defaults.get("attack_type", "melee")))

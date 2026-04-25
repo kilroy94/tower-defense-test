@@ -1,0 +1,15 @@
+{
+  "id": "basic_arrow",
+  "name": "Basic Arrow",
+  "travel_speed": 22.0,
+  "turn_rate": 0.0,
+  "impact_radius": 0.35,
+  "lifetime": 4.0,
+  "launch_height": 3.2,
+  "target_height": 0.9,
+  "visual": {
+    "shape": "box",
+    "size": [0.12, 0.12, 0.8],
+    "color": [0.86, 0.64, 0.28, 1.0]
+  }
+}

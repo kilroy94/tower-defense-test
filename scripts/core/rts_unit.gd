@@ -14,14 +14,20 @@ const SELECTION_SPAM_WINDOW_SECONDS := 5
 const MAX_ACTION_QUEUE_SIZE := 6
 const COLLISION_LAYER_WORLD := 1 << 0
 const COLLISION_LAYER_BLOCKS_UNITS := 1 << 1
+const MOVEMENT_TYPE_GROUND := "ground"
+const MOVEMENT_TYPE_FLYING := "flying"
+const FLIGHT_SHADOW_HEIGHT := 0.045
+const FLIGHT_SHADOW_ALPHA := 0.36
 
 @export var grid_path: NodePath
 @export var unit_id := "scout"
 @export var unit_data_path := "res://data/units/scout.json"
 @export var unit_name := "Scout"
+@export var movement_type := MOVEMENT_TYPE_GROUND
 @export var move_speed: float = 10.0
 @export var body_color: Color = Color(0.18, 0.78, 0.9, 1.0)
 @export var arrival_distance: float = 0.2
+@export var flight_height := 3.0
 @export var max_health := 220
 @export var damage := 8
 @export var armor := 0
@@ -72,15 +78,19 @@ var _move_order_voice_lines: Array[AudioStream] = []
 var _angry_voice_lines: Array[AudioStream] = []
 var _cannot_build_voice_line: AudioStream = null
 var _available_building_ids: Array[String] = []
+var _flight_shadow: MeshInstance3D = null
 
 
 func _ready() -> void:
 	_apply_unit_data()
-	collision_mask = COLLISION_LAYER_WORLD | COLLISION_LAYER_BLOCKS_UNITS
+	collision_mask = _get_collision_mask_for_movement_type()
 	add_to_group("rts_units")
+	if is_flying():
+		global_position.y = flight_height
 	current_health = -1 if max_health < 0 else max_health
 	set_meta("unit_name", unit_name)
 	set_meta("unit_id", unit_id)
+	set_meta("movement_type", movement_type)
 	set_meta("cost", _cost)
 	set_meta("stats", _get_runtime_stats())
 	set_meta("max_health", max_health)
@@ -94,10 +104,12 @@ func _ready() -> void:
 	set_meta("projectile_id", projectile_id)
 	_voice_rng.randomize()
 	_create_visuals()
+	_create_flight_shadow()
 	_create_voice_player()
 
 
 func _physics_process(delta: float) -> void:
+	_update_flight_shadow()
 	_follow_path(delta)
 
 
@@ -196,6 +208,17 @@ func get_available_building_ids() -> Array[String]:
 	return _available_building_ids
 
 
+func is_flying() -> bool:
+	return movement_type == MOVEMENT_TYPE_FLYING
+
+
+func can_move_to_cell(cell: Vector2i) -> bool:
+	if is_flying():
+		return map_grid.is_cell_in_bounds(cell)
+
+	return map_grid.is_cell_walkable(cell)
+
+
 func play_selection_voice() -> void:
 	_track_selection_spam()
 	if _selection_spam_count >= SELECTION_SPAM_THRESHOLD:
@@ -220,6 +243,14 @@ func play_cannot_build_there_voice() -> void:
 
 
 func _rebuild_path_to_target() -> void:
+	if is_flying():
+		_path = [_target_world_position]
+		_cell_path.clear()
+		if map_grid.is_cell_in_bounds(_target_cell):
+			_cell_path.append(_target_cell)
+		_path_index = 0
+		return
+
 	var start_cell := get_current_cell()
 	_cell_path = map_grid.find_path(start_cell, _target_cell)
 	_path.clear()
@@ -291,6 +322,9 @@ func _is_current_waypoint_blocked() -> bool:
 	if not _has_move_order or _path_index >= _path.size():
 		return false
 
+	if is_flying():
+		return false
+
 	return not map_grid.is_cell_walkable(map_grid.world_to_cell(_path[_path_index]))
 
 
@@ -323,8 +357,10 @@ func _apply_unit_data() -> void:
 	body_color = definition.get("body_color", body_color)
 
 	var movement: Dictionary = definition.get("movement", {})
+	movement_type = String(movement.get("type", movement_type))
 	move_speed = float(movement.get("move_speed", move_speed))
 	arrival_distance = float(movement.get("arrival_distance", arrival_distance))
+	flight_height = float(movement.get("flight_height", flight_height))
 
 	var stats: Dictionary = definition.get("stats", {})
 	max_health = int(stats.get("max_health", max_health))
@@ -461,6 +497,42 @@ func _create_visuals() -> void:
 	add_child(facing_marker)
 
 
+func _create_flight_shadow() -> void:
+	if not is_flying():
+		return
+
+	_flight_shadow = MeshInstance3D.new()
+	_flight_shadow.name = "FlightShadow"
+	_flight_shadow.top_level = true
+	_flight_shadow.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+
+	var shadow_mesh := CylinderMesh.new()
+	shadow_mesh.top_radius = 0.78
+	shadow_mesh.bottom_radius = 0.78
+	shadow_mesh.height = 0.01
+	shadow_mesh.radial_segments = 48
+	shadow_mesh.material = _create_flight_shadow_material()
+	_flight_shadow.mesh = shadow_mesh
+	add_child(_flight_shadow)
+	_update_flight_shadow()
+
+
+func _update_flight_shadow() -> void:
+	if _flight_shadow == null or not is_instance_valid(_flight_shadow):
+		return
+
+	_flight_shadow.global_position = Vector3(global_position.x, FLIGHT_SHADOW_HEIGHT, global_position.z)
+
+
+func _create_flight_shadow_material() -> StandardMaterial3D:
+	var material := StandardMaterial3D.new()
+	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	material.albedo_color = Color(0.02, 0.025, 0.02, FLIGHT_SHADOW_ALPHA)
+	material.roughness = 1.0
+	return material
+
+
 func _smooth_path(raw_path: Array[Vector3]) -> Array[Vector3]:
 	if raw_path.size() <= 2:
 		return raw_path
@@ -484,7 +556,15 @@ func _smooth_path(raw_path: Array[Vector3]) -> Array[Vector3]:
 
 
 func _with_unit_height(world_position: Vector3) -> Vector3:
-	return Vector3(world_position.x, global_position.y, world_position.z)
+	var height := flight_height if is_flying() else global_position.y
+	return Vector3(world_position.x, height, world_position.z)
+
+
+func _get_collision_mask_for_movement_type() -> int:
+	if is_flying():
+		return 0
+
+	return COLLISION_LAYER_WORLD | COLLISION_LAYER_BLOCKS_UNITS
 
 
 func _create_voice_player() -> void:

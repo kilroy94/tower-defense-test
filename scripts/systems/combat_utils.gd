@@ -106,6 +106,10 @@ static func apply_damage(target: Node, raw_damage: int) -> Dictionary:
 	else:
 		_set_node_health(target, next_health)
 
+	var applied_damage := previous_health - get_current_health(target)
+	if applied_damage > 0 and target.has_method("record_damage_taken"):
+		target.call("record_damage_taken", applied_damage)
+
 	return {
 		"applied": true,
 		"reason": "ok",

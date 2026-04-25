@@ -72,8 +72,8 @@ func _spawn_enemy_from_building(building: Node, command: Dictionary) -> void:
 	enemy.grid_path = NodePath("../../Grid")
 	enemy.enemy_id = String(command.get("enemy_id", "grunt"))
 	enemy.enemy_data_path = String(command.get("enemy_data_path", DEFAULT_ENEMY_DATA_PATH))
+	enemy.position = map_grid.cell_to_world(spawn_cell, 0.0)
 	enemies_root.add_child(enemy)
-	enemy.global_position = map_grid.cell_to_world(spawn_cell, 0.0)
 
 
 func _get_south_spawn_cell(building: Node) -> Vector2i:
@@ -97,21 +97,35 @@ func _get_south_spawn_cell(building: Node) -> Vector2i:
 
 
 func _exit_enemies_inside_building(building: Node) -> void:
-	if not building.has_meta("building_size"):
+	if not (building is Node3D):
 		return
 
-	var building_size: Vector3 = building.get_meta("building_size")
-	var half_extents := building_size * 0.5
 	for enemy in get_tree().get_nodes_in_group("rts_enemies"):
 		if not (enemy is RtsEnemy) or not is_instance_valid(enemy):
 			continue
 
-		var local_position := (building as Node3D).to_local(enemy.global_position)
-		if absf(local_position.x) <= half_extents.x \
-			and absf(local_position.z) <= half_extents.z \
-			and local_position.y >= -half_extents.y \
-			and local_position.y <= half_extents.y:
+		if _is_enemy_inside_exit_area(building, enemy):
 			enemy.queue_free()
+
+
+func _is_enemy_inside_exit_area(building: Node3D, enemy: RtsEnemy) -> bool:
+	if building.has_meta("grid_anchor_cell") and building.has_meta("grid_footprint"):
+		var anchor_cell: Vector2i = building.get_meta("grid_anchor_cell")
+		var footprint: Vector2i = building.get_meta("grid_footprint")
+		var enemy_cell := enemy.get_current_cell()
+		return enemy_cell.x >= anchor_cell.x \
+			and enemy_cell.y >= anchor_cell.y \
+			and enemy_cell.x < anchor_cell.x + footprint.x \
+			and enemy_cell.y < anchor_cell.y + footprint.y
+
+	if not building.has_meta("building_size"):
+		return false
+
+	var building_size: Vector3 = building.get_meta("building_size")
+	var half_extents := building_size * 0.5
+	var local_position := building.to_local(enemy.global_position)
+	return absf(local_position.x) <= half_extents.x \
+		and absf(local_position.z) <= half_extents.z
 
 
 func _get_timer_key(building: Node, command: Dictionary) -> String:

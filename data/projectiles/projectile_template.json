@@ -1,0 +1,16 @@
+{
+  "template": true,
+  "id": "projectile_id",
+  "name": "Display Name",
+  "travel_speed": 18.0,
+  "turn_rate": 0.0,
+  "impact_radius": 0.35,
+  "lifetime": 4.0,
+  "launch_height": 2.8,
+  "target_height": 0.9,
+  "visual": {
+    "shape": "box",
+    "size": [0.16, 0.16, 0.75],
+    "color": [1.0, 1.0, 1.0, 1.0]
+  }
+}

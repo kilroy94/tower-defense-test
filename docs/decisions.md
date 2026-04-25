@@ -16,9 +16,13 @@ The current build menu is a simple 3x3 grid with the final slot reserved for Bac
 
 Enemies should be unit-like but not player-controllable. Their generic behavior belongs in enemy scripts, while individual enemy stats, movement, collision, bounty, visuals, and AI profiles belong in per-enemy JSON files.
 
+Movement type is data-driven under each unit or enemy `movement` block. First-pass `ground` movement uses grid pathing and blocker collision, while `flying` movement uses direct movement at a configured height and ignores ground path blockers.
+
 Combat should be data-driven at the object-definition level and generic in runtime behavior. Units, enemies, and buildings should all describe their combat tuning through their own JSON data while shared attack processing lives in reusable combat systems.
 
 Attack delivery should distinguish between `melee` and `ranged` rather than hardcoding separate behavior trees per actor type. Melee attacks resolve directly when their checks pass, while ranged attacks spawn projectile actors that track targets and apply damage on impact.
+
+First-pass building combat lives in a focused `BuildingCombatSystem` that scans placed buildings with ranged attack stats, acquires valid enemy targets, and launches data-defined projectiles.
 
 `attack_cooldown` is the gameplay-facing combat cadence stat. It determines when another attack can be used after the current attack completes. `attack_speed` is a separate presentation-oriented stat reserved for attack animation timing when animation support is added.
 
@@ -26,7 +30,7 @@ Attack delivery should distinguish between `melee` and `ranged` rather than hard
 
 Death and destruction sounds should be data-driven per actor definition through an `audio.death` field, while generic world-audio playback stays in shared runtime helpers.
 
-Projectile definitions should live in small JSON files under `data/projectiles/`, following the same pattern used for units, enemies, and buildings. Generic projectile movement, target tracking, and impact handling should live in shared code.
+Projectile definitions should live in small JSON files under `data/projectiles/`, following the same pattern used for units, enemies, and buildings. Generic projectile movement, target tracking, visual creation, and impact handling should live in shared code.
 
 Building commands should be data-driven in each building JSON file, while shared runtime behavior for those commands belongs in generic systems such as `BuildingActionSystem`.
 
@@ -34,7 +38,13 @@ Grid occupancy separates placement occupancy from path blocking. A pathable buil
 
 Enemy pathfinding uses a stricter filtered walkability check than the generic grid. Building-occupied cells are blocked for enemies unless the building has an `exit_enemy` command.
 
+Enemy exit detection should use the exit building's grid footprint rather than visual mesh size so the removal area matches pathfinding goals.
+
+Enemy building attacks are a pathfinding fallback, not a sticky combat state. If an enemy can path to the exit, it should clear any cached building attack target and move on.
+
 Building physics collision is also data-driven. `walkable_by` controls which actor types can physically pass through a building, independently from grid pathability.
+
+Flying actors do not use the unit/enemy blocker collision masks in the first pass. If future flying blockers are needed, they should use a separate movement layer rather than overloading ground occupancy.
 
 Command hotkeys are data-driven. The command grid owns `1` through `9` as universal slot hotkeys, while command-specific letter hotkeys come from `hotkey` and resolve conflicts with `fallback_hotkey`.
 
@@ -49,6 +59,10 @@ Current entry points:
 - `data/buildings/building_template.json`
 - `data/enemies/grunt.json`
 - `data/enemies/enemy_template.json`
+- `data/projectiles/basic_arrow.json`
+- `data/projectiles/projectile_template.json`
+- `scripts/projectiles/rts_projectile.gd`
+- `scripts/systems/building_combat_system.gd`
 - `scripts/systems/game_data.gd`
 - `scripts/systems/building_action_system.gd`
 

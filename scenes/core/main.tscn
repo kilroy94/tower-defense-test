@@ -1,4 +1,4 @@
-[gd_scene load_steps=17 format=3 uid="uid://c85llb62ikjb1"]
+[gd_scene load_steps=18 format=3 uid="uid://c85llb62ikjb1"]
 
 [ext_resource type="Script" uid="uid://c5pbi3goi8rg8" path="res://scripts/core/rts_camera_controller.gd" id="1_camera_controller"]
 [ext_resource type="Script" uid="uid://bo10ghyiuf53o" path="res://scripts/systems/world_grid.gd" id="2_world_grid"]
@@ -10,13 +10,14 @@
 [ext_resource type="Script" path="res://scripts/ui/command_grid.gd" id="9_command_grid"]
 [ext_resource type="Script" path="res://scripts/enemies/rts_enemy.gd" id="10_rts_enemy"]
 [ext_resource type="Script" path="res://scripts/systems/building_action_system.gd" id="11_building_action_system"]
+[ext_resource type="Script" path="res://scripts/systems/building_combat_system.gd" id="12_building_combat_system"]
 
 [sub_resource type="Environment" id="Environment_main"]
 background_mode = 1
 background_color = Color(0.11, 0.14, 0.16, 1)
 ambient_light_source = 3
-ambient_light_color = Color(0.58, 0.65, 0.7, 1)
-ambient_light_energy = 0.55
+ambient_light_color = Color(0.72, 0.78, 0.82, 1)
+ambient_light_energy = 1.15
 
 [sub_resource type="StandardMaterial3D" id="StandardMaterial3D_ground"]
 albedo_color = Color(0.26, 0.34, 0.28, 1)
@@ -76,8 +77,9 @@ environment = SubResource("Environment_main")
 
 [node name="Sun" type="DirectionalLight3D" parent="."]
 transform = Transform3D(0.707107, -0.353553, 0.612372, 0, 0.866025, 0.5, -0.707107, -0.353553, 0.612372, 0, 0, 0)
-light_energy = 2.2
-shadow_enabled = false
+light_energy = 1.35
+shadow_enabled = true
+shadow_blur = 2.0
 
 [node name="Ground" type="MeshInstance3D" parent="."]
 mesh = SubResource("PlaneMesh_ground")
@@ -121,6 +123,8 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 10, 0, 10)
 script = ExtResource("10_rts_enemy")
 grid_path = NodePath("../../Grid")
 
+[node name="Projectiles" type="Node3D" parent="."]
+
 [node name="BuildingManager" type="Node" parent="."]
 script = ExtResource("5_building_manager")
 grid_path = NodePath("../Grid")
@@ -129,11 +133,16 @@ preview_path = NodePath("../GridPlacementPreview")
 selection_panel_path = NodePath("../HUD/SelectionPanel")
 command_grid_path = NodePath("../HUD/CommandGrid")
 buildings_root_path = NodePath("../Buildings")
+enemies_root_path = NodePath("../Enemies")
 
 [node name="BuildingActionSystem" type="Node" parent="."]
 script = ExtResource("11_building_action_system")
 grid_path = NodePath("../Grid")
 enemies_root_path = NodePath("../Enemies")
+
+[node name="BuildingCombatSystem" type="Node" parent="."]
+script = ExtResource("12_building_combat_system")
+projectiles_root_path = NodePath("../Projectiles")
 
 [node name="BuildingHoverTooltip" type="Node" parent="."]
 script = ExtResource("6_building_hover_tooltip")

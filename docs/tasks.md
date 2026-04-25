@@ -10,14 +10,19 @@
 
 ## Combat Foundation
 
-- Add projectile definitions under `data/projectiles/`.
-- Add a generic projectile runtime that tracks a target and applies damage on impact.
-- Add first-pass ranged attack launching that spawns projectiles instead of applying immediate damage.
-- Keep first-pass combat behavior driven by `attack_cooldown`; reserve `attack_speed` for future attack animation timing.
+- Completed: first-pass combat behavior is driven by `attack_cooldown`; `attack_speed` remains reserved for future attack animation timing.
+- Add presentation polish for ranged attacks, such as launch sounds, impact sounds, projectile trails, and tower attack animation timing.
 
 ## Next Session
 
-- Add attack functionality to towers so placed defensive buildings can acquire targets and make ranged attacks.
-- Start the first-pass ranged combat system, including projectile definitions and generic projectile behavior.
-- Replace Scout-built `Spawner` and `Exit Point` flow with dedicated map-level spawn and end points.
-- Add separate movement types, starting with `ground` and `flying`, and define how each interacts with pathing and blockers.
+- Build a general in-game map-building system for simple authored geometry.
+- Allow map geometry to carry gameplay tags, with first-pass tags such as `spawner` and `end_point`.
+- Replace the Scout-built prototype `Spawner` and `Exit Point` flow with tagged map geometry once the map-building system exists.
+- Add a first flying enemy definition to exercise flying path-to-exit behavior under pressure.
+- Add future polish for flying movement visuals, such as bobbing and altitude-aware selection rings.
+- Add ranged attack presentation polish, such as launch sounds, impact sounds, projectile trails, and tower attack animation timing.
+
+## Completed
+
+- Added simple circular ground shadows for flying units and enemies so flyers remain readable while normal scene shadows are enabled.
+- Added selected-actor attack range feedback: hold `Alt` while a unit, enemy, or building with `attack_range` is selected.

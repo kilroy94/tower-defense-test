@@ -4,22 +4,45 @@
 
 - `Spawner`: provisional building that passively creates a Grunt at its south face every five seconds through its data-driven `Spawn` command.
 - `Exit Point`: provisional pathable, transparent building that acts as the enemy pathfinding goal and passively removes enemies inside it through its data-driven `Exit` command.
+- Exit removal is based on the building's grid footprint, not its visual mesh bounds, so it matches the same cells enemies can path into.
 
 ## Enemies
 
 - Enemies are non-player-controlled unit-like actors.
 - Enemy stats, movement, collision, bounty, visuals, and AI profile should be defined in focused JSON files under `data/enemies/`.
 - `Grunt` is the first prototype enemy. Its eventual loop is to spawn from a `Spawner` and path toward an `Exit Point`.
+- `Test Dummy` is a debug enemy that can be spawned at the mouse position with `F2` for attack and damage-readout testing.
+- Debug enemy damage readouts can tune `damage_display_font_size`, `damage_display_height_offset`, and `damage_display_outline_size` in the enemy JSON `debug` block.
+- Enemies can define `movement.type` as `ground` or `flying`.
+- Ground enemies use grid pathfinding and respect path blockers.
+- Flying enemies move directly toward their objective and ignore grid path blockers.
 - Enemies with the `path_to_exit` AI role periodically look for a placed building whose id matches their AI `target`, currently `exit_point`. If no matching building exists, they idle and keep checking.
 - If the target building is pathable, enemies path directly into its footprint. If the target building blocks pathing, enemies path to the nearest reachable neighboring cell.
 - Enemy pathfinding treats building-occupied cells as blocked unless the occupying building has an `exit_enemy` command.
 - If the path to the enemy goal is fully blocked by attackable buildings, melee enemies can fall back to moving into attack range of a blocking building and destroying it before continuing.
+- Enemies should prefer a valid route to the exit over attacking buildings. On each AI poll, they check whether an exit path is available and resume movement if it is.
+- Exit-route checks use one search that can stop at any valid exit goal cell, rather than running one path search per footprint cell.
+- Enemies already moving to the exit keep their current path only while its remaining waypoints are still walkable. If a new building blocks that path, they re-run the exit-route search and take another open route if one exists.
+- Cached building attack targets do not permanently override pathing. Before a melee building attack proceeds, the enemy can make a throttled exit-route check and resume moving if a valid route exists.
+- If no exit route exists, enemies fall back to attackable blockers. If a blocker path cannot be built but an attackable building is already in range, they keep that target instead of dropping into a silent idle.
+- Enemy paths currently follow grid waypoints without smoothing so movement cannot cut between occupied building cells. Future smoothing needs a proper grid-clearance corridor before it is re-enabled.
+
+## Movement Types
+
+- Units and enemies can define movement under their JSON `movement` block.
+- Supported first-pass movement types are `ground` and `flying`.
+- `ground` actors use grid pathing and collision masks that respect their blocker layer.
+- `flying` actors move directly to their target point at `movement.flight_height` and ignore unit/enemy/building blocker collision.
+- The current `Scout` uses flying movement so the prototype builder can move and build without being trapped by ground blockers.
+- Flying builders can issue move and build orders to any in-bounds cell, while ground builders still require walkable cells and reachable build-adjacent cells.
+- Flying actors render a simple circular ground shadow beneath them in addition to normal scene shadows so their height and map position stay readable.
 
 ## Combat
 
 - Combat will support two attack delivery types: `melee` and `ranged`.
 - An attacker first acquires or is assigned a valid target, checks whether that target is still legal, and checks whether the target is inside attack range before making an attack.
 - All combatants should eventually use the same first-pass attack concepts whether they are units, enemies, or buildings.
+- Holding `Alt` while a combat-capable unit, enemy, or building is selected shows its current attack range as a ground perimeter.
 
 ## Melee Attacks
 
@@ -38,15 +61,20 @@
 - The projectile tracks its target in flight and applies damage when it reaches the target.
 - If a ranged attacker passes its attack checks, the attack is considered launched once the projectile is spawned, even though the damage lands later.
 - Projectile behavior should stay generic in code while projectile-specific tuning lives in per-projectile data.
+- Placed buildings with `attack_type` set to `ranged` can acquire enemy targets in range and launch their configured `projectile_id`.
+- Placed buildings with `attack_type` set to `melee` can acquire enemy targets in range and apply direct damage without a projectile.
+- First-pass building target priority is nearest valid enemy in attack range.
 
 ## Combat Stats
 
 - Shared attack-related stats should be data-driven under each actor's `stats` block over time.
 - `max_health` values of `-1` mean the actor is invincible.
 - Invincible actors should be ignored by attack targeting and should not take damage.
+- `health_regen_per_second` restores health over time for actors that implement regeneration.
 - Actors can also define a data-driven `audio.death` sound for death or destruction events.
 - The first combat stat set should include:
   - `damage`
+  - `health_regen_per_second`
   - `attack_range`
   - `attack_speed`
   - `attack_cooldown`
@@ -59,13 +87,16 @@
 
 ## Projectile Stats
 
-- Projectile definitions should eventually live in focused JSON files under `data/projectiles/`.
+- Projectile definitions live in focused JSON files under `data/projectiles/`.
+- `basic_arrow` is the first projectile definition and is referenced by `North Tower`.
 - The first projectile stat set should include:
   - `travel_speed`
   - `turn_rate`
   - `impact_radius`
   - `lifetime`
+- Projectile definitions can also tune `launch_height`, `target_height`, and simple `visual` data.
 - First-pass projectiles should track a single target and deal direct damage on impact.
+- If a projectile's target becomes invalid, invincible, dead, or removed before impact, the projectile cleans itself up without applying damage.
 - More advanced projectile behaviors such as splash, piercing, bouncing, homing falloff, or on-hit effects should layer on top of this base system later.
 
 ## Building Actions
@@ -73,6 +104,7 @@
 - Buildings can define commands in their individual JSON files, matching the same command-grid data shape used by units.
 - Passive building commands are executed by `BuildingActionSystem`.
 - The first prototype passive actions are `spawn_enemy`, used by the Spawner's `Spawn` command, and `exit_enemy`, used by the Exit Point's `Exit` command.
+- `exit_enemy` removes enemies whose current grid cell is inside the exit building footprint.
 
 ## Command Hotkeys
 

@@ -22,6 +22,8 @@ const ACTOR_TYPE_ENEMY := "enemy"
 const COLLISION_LAYER_BLOCKS_UNITS := 1 << 1
 const COLLISION_LAYER_BLOCKS_ENEMIES := 1 << 2
 const MAINTENANCE_INTERVAL := 0.1
+const DEBUG_TEST_DUMMY_DATA_PATH := "res://data/enemies/test_dummy.json"
+const ATTACK_RANGE_RING_HEIGHT := 0.1
 
 @export var grid_path: NodePath
 @export var camera_rig_path: NodePath
@@ -29,6 +31,7 @@ const MAINTENANCE_INTERVAL := 0.1
 @export var selection_panel_path: NodePath
 @export var command_grid_path: NodePath
 @export var buildings_root_path: NodePath
+@export var enemies_root_path: NodePath
 @export var building_data_directory := "res://data/buildings"
 
 @onready var map_grid: MapGrid = get_node(grid_path)
@@ -37,6 +40,7 @@ const MAINTENANCE_INTERVAL := 0.1
 @onready var selection_panel: SelectionPanel = get_node(selection_panel_path)
 @onready var command_grid: CommandGrid = get_node(command_grid_path)
 @onready var buildings_root: Node3D = get_node(buildings_root_path)
+@onready var enemies_root: Node3D = get_node(enemies_root_path)
 
 const SELECTION_RING_SEGMENTS := 96
 
@@ -52,6 +56,7 @@ var _selected_placed_building: Node = null
 var _selected_unit: RtsUnit = null
 var _selected_enemy: RtsEnemy = null
 var _selection_ring: MeshInstance3D
+var _attack_range_ring: MeshInstance3D
 var _interface_audio_player: AudioStreamPlayer
 var _interaction_state := InteractionState.SELECTING
 var _queued_buildings_root: Node3D
@@ -67,6 +72,7 @@ func _ready() -> void:
 	_load_building_data()
 	_create_interface_audio_player()
 	_create_selection_ring()
+	_create_attack_range_ring()
 	_create_queued_buildings_root()
 	command_grid.command_pressed.connect(_on_command_pressed)
 	selection_panel.portrait_double_clicked.connect(_on_selection_portrait_double_clicked)
@@ -79,6 +85,7 @@ func _ready() -> void:
 func _process(delta: float) -> void:
 	if _selected_unit != null or _selected_enemy != null:
 		_update_selection_ring()
+	_update_attack_range_ring()
 
 	_maintenance_timer -= delta
 	if _maintenance_timer > 0.0:
@@ -102,6 +109,9 @@ func _unhandled_input(event: InputEvent) -> void:
 					return
 			KEY_F1:
 				_select_scout_unit_from_hotkey()
+				return
+			KEY_F2:
+				_spawn_test_dummy_at_mouse()
 				return
 			KEY_ESCAPE:
 				_set_interaction_state(InteractionState.SELECTING)
@@ -266,7 +276,7 @@ func _try_issue_build_order() -> void:
 		_cancel_queued_building(anchor_cell, footprint, queued_ghost)
 	var action_model := _get_building_model_data(building)
 
-	var worker_target_position := map_grid.cell_to_world(worker_target_cell, _selected_unit.global_position.y)
+	var worker_target_position := _get_worker_target_position(building, anchor_cell, footprint, worker_target_cell)
 	if not _selected_unit.issue_move_order_with_callback(
 		worker_target_position,
 		build_order,
@@ -436,6 +446,9 @@ func _on_construction_loop_finished(loop_player: AudioStreamPlayer) -> void:
 
 
 func _find_worker_target_cell(anchor_cell: Vector2i, footprint: Vector2i) -> Vector2i:
+	if _selected_unit != null and _selected_unit.is_flying():
+		return anchor_cell + Vector2i(floori(float(footprint.x) * 0.5), floori(float(footprint.y) * 0.5))
+
 	var candidate_cells: Array[Vector2i] = []
 	for x in range(anchor_cell.x, anchor_cell.x + footprint.x):
 		candidate_cells.append(Vector2i(x, anchor_cell.y - 1))
@@ -464,9 +477,16 @@ func _find_worker_target_cell(anchor_cell: Vector2i, footprint: Vector2i) -> Vec
 	return best_cell
 
 
+func _get_worker_target_position(_building: Dictionary, anchor_cell: Vector2i, footprint: Vector2i, worker_target_cell: Vector2i) -> Vector3:
+	if _selected_unit != null and _selected_unit.is_flying():
+		return map_grid.footprint_to_world_center(anchor_cell, footprint, _selected_unit.global_position.y)
+
+	return map_grid.cell_to_world(worker_target_cell, _selected_unit.global_position.y)
+
+
 func _issue_selected_unit_move_order() -> void:
 	var target_cell := placement_preview.current_cell
-	if map_grid.is_cell_walkable(target_cell):
+	if _selected_unit.can_move_to_cell(target_cell):
 		_selected_unit.issue_move_order(placement_preview.current_world_point)
 	else:
 		_play_invalid_order_feedback(false)
@@ -601,6 +621,22 @@ func _select_enemy(enemy: RtsEnemy) -> void:
 	selection_panel.show_enemy(enemy)
 
 
+func _spawn_test_dummy_at_mouse() -> void:
+	var spawn_cell := placement_preview.current_cell
+	if not map_grid.is_cell_in_bounds(spawn_cell):
+		_play_invalid_order_feedback(false)
+		return
+
+	var dummy := RtsEnemy.new()
+	dummy.name = "TestDummy"
+	dummy.grid_path = NodePath("../../Grid")
+	dummy.enemy_id = "test_dummy"
+	dummy.enemy_data_path = DEBUG_TEST_DUMMY_DATA_PATH
+	dummy.position = map_grid.cell_to_world(spawn_cell, 0.0)
+	enemies_root.add_child(dummy)
+	_select_enemy(dummy)
+
+
 func _select_scout_unit() -> void:
 	var scout := _get_unit_by_name("Scout")
 	if scout == null:
@@ -654,6 +690,7 @@ func _clear_selection() -> void:
 	command_grid.set_commands([])
 	command_grid.set_selected_command("")
 	_selection_ring.visible = false
+	_attack_range_ring.visible = false
 	selection_panel.clear_selection()
 
 
@@ -776,6 +813,24 @@ func _create_selection_ring() -> void:
 	_selection_ring.visible = false
 
 	buildings_root.add_child(_selection_ring)
+
+
+func _create_attack_range_ring() -> void:
+	_attack_range_ring = MeshInstance3D.new()
+	_attack_range_ring.name = "AttackRangeRing"
+	_attack_range_ring.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_attack_range_ring.material_override = _create_attack_range_material()
+	_attack_range_ring.visible = false
+	buildings_root.add_child(_attack_range_ring)
+
+
+func _create_attack_range_material() -> StandardMaterial3D:
+	var material := StandardMaterial3D.new()
+	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	material.albedo_color = Color(0.25, 0.72, 1.0, 0.28)
+	material.no_depth_test = true
+	return material
 
 
 func _create_queued_buildings_root() -> void:
@@ -907,6 +962,58 @@ func _update_selection_ring() -> void:
 	_selection_ring.mesh = _create_selection_ring_mesh(radius)
 	_selection_ring.global_position = map_grid.footprint_to_world_center(anchor_cell, footprint, 0.12)
 	_selection_ring.visible = true
+
+
+func _update_attack_range_ring() -> void:
+	if not Input.is_key_pressed(KEY_ALT):
+		_attack_range_ring.visible = false
+		return
+
+	var range_data := _get_selected_attack_range_data()
+	var attack_range := float(range_data.get("attack_range", 0.0))
+	if attack_range <= 0.0:
+		_attack_range_ring.visible = false
+		return
+
+	_attack_range_ring.mesh = _create_attack_range_mesh(attack_range)
+	_attack_range_ring.global_position = range_data.get("position", Vector3.ZERO)
+	_attack_range_ring.visible = true
+
+
+func _get_selected_attack_range_data() -> Dictionary:
+	if _selected_unit != null and is_instance_valid(_selected_unit):
+		return {
+			"attack_range": _selected_unit.get_attack_range(),
+			"position": Vector3(_selected_unit.global_position.x, ATTACK_RANGE_RING_HEIGHT, _selected_unit.global_position.z)
+		}
+
+	if _selected_enemy != null and is_instance_valid(_selected_enemy):
+		return {
+			"attack_range": _selected_enemy.get_attack_range(),
+			"position": Vector3(_selected_enemy.global_position.x, ATTACK_RANGE_RING_HEIGHT, _selected_enemy.global_position.z)
+		}
+
+	if _selected_placed_building != null \
+		and is_instance_valid(_selected_placed_building) \
+		and _selected_placed_building is Node3D:
+		var building_position := (_selected_placed_building as Node3D).global_position
+		return {
+			"attack_range": float(_selected_placed_building.get_meta("attack_range", 0.0)),
+			"position": Vector3(building_position.x, ATTACK_RANGE_RING_HEIGHT, building_position.z)
+		}
+
+	return {}
+
+
+func _create_attack_range_mesh(radius: float) -> ImmediateMesh:
+	var range_mesh := ImmediateMesh.new()
+	range_mesh.surface_begin(Mesh.PRIMITIVE_LINE_STRIP)
+	for index in range(SELECTION_RING_SEGMENTS + 1):
+		var angle := TAU * float(index) / float(SELECTION_RING_SEGMENTS)
+		range_mesh.surface_add_vertex(Vector3(cos(angle) * radius, 0.0, sin(angle) * radius))
+
+	range_mesh.surface_end()
+	return range_mesh
 
 
 func _create_selection_ring_mesh(radius: float) -> ImmediateMesh:

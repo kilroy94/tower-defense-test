@@ -18,8 +18,10 @@
     "projectile_id": ""
   },
   "movement": {
+    "type": "ground",
     "move_speed": 8.0,
-    "arrival_distance": 0.2
+    "arrival_distance": 0.2,
+    "flight_height": 6.0
   },
   "body_color": [1.0, 1.0, 1.0, 1.0],
   "portrait_camera": {
