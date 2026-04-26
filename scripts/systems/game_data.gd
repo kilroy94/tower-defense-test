@@ -96,6 +96,29 @@ static func load_building_definitions(directory_path: String) -> Array[Dictionar
 	return buildings
 
 
+static func load_map_geometry_definitions(directory_path: String) -> Array[Dictionary]:
+	var geometries: Array[Dictionary] = []
+	var directory := DirAccess.open(directory_path)
+	if directory == null:
+		push_warning("Could not open map geometry data directory: %s." % directory_path)
+		return geometries
+
+	var file_names := directory.get_files()
+	file_names.sort()
+	for file_name in file_names:
+		if not file_name.ends_with(".json"):
+			continue
+
+		var definition_path := directory_path.path_join(file_name)
+		var definition := load_json_file(definition_path)
+		if definition.is_empty() or _is_template_definition(definition):
+			continue
+
+		geometries.append(_normalize_map_geometry_definition(definition))
+
+	return geometries
+
+
 static func _normalize_unit_definition(raw_definition: Dictionary) -> Dictionary:
 	var definition := raw_definition.duplicate(true)
 	definition["body_color"] = color_from_json(definition.get("body_color", [0.18, 0.78, 0.9, 1.0]))
@@ -113,6 +136,9 @@ static func _normalize_unit_definition(raw_definition: Dictionary) -> Dictionary
 	var movement: Dictionary = definition.get("movement", {})
 	movement["type"] = String(movement.get("type", "ground"))
 	movement["move_speed"] = float(movement.get("move_speed", 8.0))
+	movement["turn_speed"] = float(movement.get("turn_speed", 1080.0))
+	movement["turn_alignment_degrees"] = float(movement.get("turn_alignment_degrees", 11.5))
+	movement["turn_acceleration_time"] = float(movement.get("turn_acceleration_time", 0.03))
 	movement["arrival_distance"] = float(movement.get("arrival_distance", 0.2))
 	movement["flight_height"] = float(movement.get("flight_height", 3.0))
 	definition["movement"] = movement
@@ -159,6 +185,9 @@ static func _normalize_enemy_definition(raw_definition: Dictionary) -> Dictionar
 	var movement: Dictionary = definition.get("movement", {})
 	movement["type"] = String(movement.get("type", "ground"))
 	movement["move_speed"] = float(movement.get("move_speed", 7.0))
+	movement["turn_speed"] = float(movement.get("turn_speed", 1080.0))
+	movement["turn_alignment_degrees"] = float(movement.get("turn_alignment_degrees", 11.5))
+	movement["turn_acceleration_time"] = float(movement.get("turn_acceleration_time", 0.03))
 	movement["arrival_distance"] = float(movement.get("arrival_distance", 0.2))
 	movement["flight_height"] = float(movement.get("flight_height", 3.0))
 	definition["movement"] = movement
@@ -239,6 +268,39 @@ static func _normalize_building_definition(raw_definition: Dictionary) -> Dictio
 		if raw_command is Dictionary:
 			commands.append(_normalize_command_definition(raw_command))
 	definition["commands"] = commands
+
+	return definition
+
+
+static func _normalize_map_geometry_definition(raw_definition: Dictionary) -> Dictionary:
+	var definition := raw_definition.duplicate(true)
+	definition["id"] = String(definition.get("id", ""))
+	definition["name"] = String(definition.get("name", definition["id"]))
+	definition["shape"] = String(definition.get("shape", "box"))
+
+	var tags: Array[String] = []
+	for tag in definition.get("tags", []):
+		tags.append(String(tag))
+	definition["tags"] = tags
+
+	var metadata: Dictionary = {}
+	if definition.get("metadata", {}) is Dictionary:
+		metadata = (definition.get("metadata", {}) as Dictionary).duplicate(true)
+	definition["metadata"] = metadata
+
+	definition["footprint"] = vector2i_from_json(definition.get("footprint", [1, 1]))
+	definition["size"] = vector3_from_json(definition.get("size", [2.0, 0.5, 2.0]))
+	definition["color"] = color_from_json(definition.get("color", [0.6, 0.7, 0.8, 0.55]))
+	definition["rotation_steps"] = posmod(int(definition.get("rotation_steps", 0)), 4)
+	definition["pathable"] = bool(definition.get("pathable", false))
+	definition["hotkey"] = String(definition.get("hotkey", ""))
+	definition["fallback_hotkey"] = String(definition.get("fallback_hotkey", ""))
+
+	var portrait_camera: Dictionary = definition.get("portrait_camera", {})
+	definition["portrait_camera_offset"] = vector3_from_json(portrait_camera.get("offset", [0.0, 2.2, 5.2]))
+	definition["portrait_camera_target"] = vector3_from_json(portrait_camera.get("target", [0.0, 0.5, 0.0]))
+	definition["portrait_camera_fov"] = float(portrait_camera.get("fov", 42.0))
+	definition.erase("portrait_camera")
 
 	return definition
 

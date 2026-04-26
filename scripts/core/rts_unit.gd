@@ -18,6 +18,8 @@ const MOVEMENT_TYPE_GROUND := "ground"
 const MOVEMENT_TYPE_FLYING := "flying"
 const FLIGHT_SHADOW_HEIGHT := 0.045
 const FLIGHT_SHADOW_ALPHA := 0.36
+const DEFAULT_TURN_ALIGNMENT_DEGREES := 11.5
+const DEFAULT_TURN_ACCELERATION_TIME := 0.03
 
 @export var grid_path: NodePath
 @export var unit_id := "scout"
@@ -25,6 +27,9 @@ const FLIGHT_SHADOW_ALPHA := 0.36
 @export var unit_name := "Scout"
 @export var movement_type := MOVEMENT_TYPE_GROUND
 @export var move_speed: float = 10.0
+@export var turn_speed: float = 1080.0
+@export var turn_alignment_degrees := DEFAULT_TURN_ALIGNMENT_DEGREES
+@export var turn_acceleration_time := DEFAULT_TURN_ACCELERATION_TIME
 @export var body_color: Color = Color(0.18, 0.78, 0.9, 1.0)
 @export var arrival_distance: float = 0.2
 @export var flight_height := 3.0
@@ -79,6 +84,8 @@ var _angry_voice_lines: Array[AudioStream] = []
 var _cannot_build_voice_line: AudioStream = null
 var _available_building_ids: Array[String] = []
 var _flight_shadow: MeshInstance3D = null
+var _current_turn_speed := 0.0
+var _last_turn_sign := 0.0
 
 
 func _ready() -> void:
@@ -91,6 +98,9 @@ func _ready() -> void:
 	set_meta("unit_name", unit_name)
 	set_meta("unit_id", unit_id)
 	set_meta("movement_type", movement_type)
+	set_meta("turn_speed", turn_speed)
+	set_meta("turn_alignment_degrees", turn_alignment_degrees)
+	set_meta("turn_acceleration_time", turn_acceleration_time)
 	set_meta("cost", _cost)
 	set_meta("stats", _get_runtime_stats())
 	set_meta("max_health", max_health)
@@ -286,18 +296,17 @@ func _follow_path(_delta: float) -> void:
 			return
 
 	var target := _path[_path_index]
-	var previous_position := global_position
 	var to_target := target - global_position
 	to_target.y = 0.0
 	if to_target.length() > arrival_distance:
-		velocity = to_target.normalized() * move_speed
-		move_and_slide()
+		var move_direction := to_target.normalized()
+		if _turn_toward_direction(move_direction, _delta):
+			velocity = move_direction * move_speed
+			move_and_slide()
+		else:
+			velocity = Vector3.ZERO
 	else:
 		velocity = Vector3.ZERO
-
-	var travel_direction := global_position - previous_position
-	if travel_direction.length_squared() > 0.0001:
-		look_at(global_position + travel_direction.normalized(), Vector3.UP)
 
 	if Vector2(global_position.x, global_position.z).distance_to(Vector2(target.x, target.z)) <= arrival_distance:
 		_path_index += 1
@@ -359,6 +368,9 @@ func _apply_unit_data() -> void:
 	var movement: Dictionary = definition.get("movement", {})
 	movement_type = String(movement.get("type", movement_type))
 	move_speed = float(movement.get("move_speed", move_speed))
+	turn_speed = float(movement.get("turn_speed", turn_speed))
+	turn_alignment_degrees = float(movement.get("turn_alignment_degrees", turn_alignment_degrees))
+	turn_acceleration_time = float(movement.get("turn_acceleration_time", turn_acceleration_time))
 	arrival_distance = float(movement.get("arrival_distance", arrival_distance))
 	flight_height = float(movement.get("flight_height", flight_height))
 
@@ -565,6 +577,66 @@ func _get_collision_mask_for_movement_type() -> int:
 		return 0
 
 	return COLLISION_LAYER_WORLD | COLLISION_LAYER_BLOCKS_UNITS
+
+
+func _turn_toward_direction(target_direction: Vector3, delta: float) -> bool:
+	target_direction.y = 0.0
+	if target_direction.length_squared() <= 0.0001:
+		_reset_turn_ramp()
+		return true
+
+	var normalized_target := target_direction.normalized()
+	if turn_speed <= 0.0:
+		look_at(global_position + normalized_target, Vector3.UP)
+		_reset_turn_ramp()
+		return true
+
+	var current_forward := -global_transform.basis.z
+	current_forward.y = 0.0
+	if current_forward.length_squared() <= 0.0001:
+		look_at(global_position + normalized_target, Vector3.UP)
+		_reset_turn_ramp()
+		return true
+
+	current_forward = current_forward.normalized()
+	var angle := current_forward.signed_angle_to(normalized_target, Vector3.UP)
+	var alignment_angle := deg_to_rad(maxf(turn_alignment_degrees, 0.0))
+	var is_aligned_before_turn := absf(angle) <= alignment_angle
+	if is_zero_approx(angle):
+		_reset_turn_ramp()
+		return true
+
+	var max_turn := _get_turn_step(angle, delta)
+	if absf(angle) <= max_turn:
+		look_at(global_position + normalized_target, Vector3.UP)
+		_reset_turn_ramp()
+		return true
+
+	rotate_y(clampf(angle, -max_turn, max_turn))
+	return is_aligned_before_turn or absf(angle) - max_turn <= alignment_angle
+
+
+func _get_turn_step(angle: float, delta: float) -> float:
+	var turn_sign := signf(angle)
+	if not is_equal_approx(turn_sign, _last_turn_sign):
+		_current_turn_speed = 0.0
+		_last_turn_sign = turn_sign
+
+	var max_turn_speed := deg_to_rad(maxf(turn_speed, 0.0))
+	if turn_acceleration_time <= 0.0:
+		_current_turn_speed = max_turn_speed
+	else:
+		_current_turn_speed = minf(
+			_current_turn_speed + (max_turn_speed / turn_acceleration_time) * delta,
+			max_turn_speed
+		)
+
+	return _current_turn_speed * delta
+
+
+func _reset_turn_ramp() -> void:
+	_current_turn_speed = 0.0
+	_last_turn_sign = 0.0
 
 
 func _create_voice_player() -> void:

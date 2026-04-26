@@ -14,6 +14,7 @@ var current_cell: Vector2i = Vector2i.ZERO
 var current_world_point: Vector3 = Vector3.ZERO
 var is_current_cell_valid := false
 var display_enabled := true
+var allows_map_geometry_stack := false
 var _preview_material: StandardMaterial3D
 var _ghost_mesh_instance: MeshInstance3D
 var _ghost_material: StandardMaterial3D
@@ -29,15 +30,19 @@ func _ready() -> void:
 	_rebuild_preview_mesh()
 
 
-func set_building_preview(size: Vector3, color: Color) -> void:
+func set_building_preview(preview_size: Vector3, color: Color, shape: String = "box") -> void:
 	if _ghost_mesh_instance == null:
 		return
 
-	var ghost_mesh := BoxMesh.new()
-	ghost_mesh.size = size
-	ghost_mesh.material = _ghost_material
-	_ghost_mesh_instance.mesh = ghost_mesh
-	_ghost_mesh_instance.position.y = size.y * 0.5
+	if shape == "ramp":
+		_ghost_mesh_instance.mesh = _create_ramp_mesh(preview_size)
+		_ghost_mesh_instance.position.y = preview_size.y * 0.5
+	else:
+		var ghost_mesh := BoxMesh.new()
+		ghost_mesh.size = preview_size
+		ghost_mesh.material = _ghost_material
+		_ghost_mesh_instance.mesh = ghost_mesh
+		_ghost_mesh_instance.position.y = preview_size.y * 0.5
 
 	_ghost_base_color = color
 	_ghost_material.albedo_color = Color(color.r, color.g, color.b, 0.34)
@@ -54,6 +59,10 @@ func set_display_enabled(is_enabled: bool) -> void:
 	if not display_enabled:
 		visible = false
 		_ghost_mesh_instance.visible = false
+
+
+func set_allows_map_geometry_stack(is_allowed: bool) -> void:
+	allows_map_geometry_stack = is_allowed
 
 
 func _rebuild_preview_mesh() -> void:
@@ -82,20 +91,108 @@ func _create_ghost() -> void:
 func _process(_delta: float) -> void:
 	current_world_point = _get_mouse_world_point()
 	current_cell = map_grid.world_to_cell(current_world_point)
-	is_current_cell_valid = map_grid.can_place(current_cell, footprint)
+	is_current_cell_valid = _can_place_current_footprint()
 	visible = display_enabled and map_grid.is_footprint_in_bounds(current_cell, footprint)
 
 	if not visible:
 		_ghost_mesh_instance.visible = false
 		return
 
-	global_position = map_grid.footprint_to_world_center(current_cell, footprint, 0.08)
+	var preview_base_height := _get_preview_base_height()
+	global_position = map_grid.footprint_to_world_center(current_cell, footprint, preview_base_height + 0.08)
 	_preview_material.albedo_color = valid_color if is_current_cell_valid else blocked_color
 	if is_current_cell_valid:
 		_ghost_material.albedo_color = Color(_ghost_base_color.r, _ghost_base_color.g, _ghost_base_color.b, 0.34)
 	else:
 		_ghost_material.albedo_color = Color(blocked_color.r, blocked_color.g, blocked_color.b, 0.34)
 	_ghost_mesh_instance.visible = true
+
+
+func _can_place_current_footprint() -> bool:
+	if not allows_map_geometry_stack:
+		return map_grid.can_place(current_cell, footprint)
+
+	if not map_grid.is_footprint_in_bounds(current_cell, footprint):
+		return false
+
+	for cell in map_grid.get_footprint_cells(current_cell, footprint):
+		var occupant: Variant = map_grid.get_occupant(cell)
+		if occupant != null and not _is_map_geometry_node(occupant):
+			return false
+
+	return true
+
+
+func _is_map_geometry_node(value: Variant) -> bool:
+	return value is Node and (value as Node).has_meta("geometry_name")
+
+
+func _get_preview_base_height() -> float:
+	if not allows_map_geometry_stack:
+		return 0.0
+
+	var stack_height := 0.0
+	for cell in map_grid.get_footprint_cells(current_cell, footprint):
+		for map_geometry in get_tree().get_nodes_in_group("rts_map_geometry"):
+			if not (map_geometry is Node):
+				continue
+
+			if not _is_cell_inside_node_footprint(map_geometry, cell):
+				continue
+
+			stack_height = maxf(stack_height, _get_map_geometry_top_height(map_geometry))
+
+	return stack_height
+
+
+func _is_cell_inside_node_footprint(node: Node, cell: Vector2i) -> bool:
+	if not node.has_meta("grid_anchor_cell") or not node.has_meta("grid_footprint"):
+		return false
+
+	var anchor_cell: Vector2i = node.get_meta("grid_anchor_cell")
+	var node_footprint: Vector2i = node.get_meta("grid_footprint")
+	return cell.x >= anchor_cell.x \
+		and cell.y >= anchor_cell.y \
+		and cell.x < anchor_cell.x + node_footprint.x \
+		and cell.y < anchor_cell.y + node_footprint.y
+
+
+func _get_map_geometry_top_height(map_geometry: Node) -> float:
+	var base_height := float(map_geometry.get_meta("geometry_base_height", 0.0))
+	var size: Vector3 = map_geometry.get_meta("geometry_size", Vector3.ZERO)
+	return base_height + size.y
+
+
+func _create_ramp_mesh(ramp_size: Vector3) -> ArrayMesh:
+	var half_x := ramp_size.x * 0.5
+	var half_y := ramp_size.y * 0.5
+	var half_z := ramp_size.z * 0.5
+	var ramp_mesh := ArrayMesh.new()
+	var vertices := PackedVector3Array([
+		Vector3(-half_x, -half_y, -half_z),
+		Vector3(half_x, -half_y, -half_z),
+		Vector3(-half_x, -half_y, half_z),
+		Vector3(half_x, -half_y, half_z),
+		Vector3(-half_x, half_y, half_z),
+		Vector3(half_x, half_y, half_z)
+	])
+	var indices := PackedInt32Array([
+		0, 2, 1,
+		1, 2, 3,
+		2, 4, 3,
+		3, 4, 5,
+		0, 1, 4,
+		1, 5, 4,
+		0, 4, 2,
+		1, 3, 5
+	])
+	var arrays := []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = vertices
+	arrays[Mesh.ARRAY_INDEX] = indices
+	ramp_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	ramp_mesh.surface_set_material(0, _ghost_material)
+	return ramp_mesh
 
 
 func _get_mouse_world_point() -> Vector3:

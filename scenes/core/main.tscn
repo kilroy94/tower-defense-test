@@ -1,4 +1,4 @@
-[gd_scene load_steps=18 format=3 uid="uid://c85llb62ikjb1"]
+[gd_scene load_steps=20 format=3 uid="uid://c85llb62ikjb1"]
 
 [ext_resource type="Script" uid="uid://c5pbi3goi8rg8" path="res://scripts/core/rts_camera_controller.gd" id="1_camera_controller"]
 [ext_resource type="Script" uid="uid://bo10ghyiuf53o" path="res://scripts/systems/world_grid.gd" id="2_world_grid"]
@@ -11,6 +11,8 @@
 [ext_resource type="Script" path="res://scripts/enemies/rts_enemy.gd" id="10_rts_enemy"]
 [ext_resource type="Script" path="res://scripts/systems/building_action_system.gd" id="11_building_action_system"]
 [ext_resource type="Script" path="res://scripts/systems/building_combat_system.gd" id="12_building_combat_system"]
+[ext_resource type="Script" path="res://scripts/systems/pathing_system.gd" id="13_pathing_system"]
+[ext_resource type="Script" path="res://scripts/ui/fps_display.gd" id="14_fps_display"]
 
 [sub_resource type="Environment" id="Environment_main"]
 background_mode = 1
@@ -93,6 +95,12 @@ shape = SubResource("BoxShape3D_ground_collision")
 [node name="Grid" type="MeshInstance3D" parent="."]
 script = ExtResource("2_world_grid")
 
+[node name="PathingSystem" type="Node" parent="."]
+script = ExtResource("13_pathing_system")
+grid_path = NodePath("../Grid")
+
+[node name="MapGeometry" type="Node3D" parent="."]
+
 [node name="CameraRig" type="Node3D" parent="."]
 script = ExtResource("1_camera_controller")
 
@@ -133,6 +141,7 @@ preview_path = NodePath("../GridPlacementPreview")
 selection_panel_path = NodePath("../HUD/SelectionPanel")
 command_grid_path = NodePath("../HUD/CommandGrid")
 buildings_root_path = NodePath("../Buildings")
+map_geometry_root_path = NodePath("../MapGeometry")
 enemies_root_path = NodePath("../Enemies")
 
 [node name="BuildingActionSystem" type="Node" parent="."]
@@ -151,6 +160,24 @@ grid_path = NodePath("../Grid")
 popup_label_path = NodePath("../HUD/BuildingTooltipLabel")
 
 [node name="HUD" type="CanvasLayer" parent="."]
+
+[node name="FPSLabel" type="Label" parent="HUD"]
+anchors_preset = 1
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -112.0
+offset_top = 12.0
+offset_right = -12.0
+offset_bottom = 36.0
+grow_horizontal = 0
+horizontal_alignment = 2
+theme_override_colors/font_color = Color(0.86, 0.96, 0.82, 1)
+theme_override_colors/font_shadow_color = Color(0, 0, 0, 0.85)
+theme_override_constants/shadow_offset_x = 1
+theme_override_constants/shadow_offset_y = 1
+theme_override_font_sizes/font_size = 16
+text = "FPS: --"
+script = ExtResource("14_fps_display")
 
 [node name="BuildingTooltipLabel" type="Label" parent="HUD"]
 visible = false

@@ -1,0 +1,18 @@
+{
+  "template": true,
+  "id": "geometry_id",
+  "name": "Display Name",
+  "tags": ["tag"],
+  "metadata": {},
+  "footprint": [1, 1],
+  "hotkey": "G",
+  "fallback_hotkey": "",
+  "pathable": false,
+  "size": [2.0, 0.5, 2.0],
+  "color": [0.6, 0.7, 0.8, 0.55],
+  "portrait_camera": {
+    "offset": [0.0, 2.2, 5.2],
+    "target": [0.0, 0.5, 0.0],
+    "fov": 42.0
+  }
+}

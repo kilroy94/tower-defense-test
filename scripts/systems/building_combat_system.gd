@@ -4,14 +4,21 @@ extends Node
 const CombatUtilsRef = preload("res://scripts/systems/combat_utils.gd")
 const ATTACK_TYPE_MELEE := "melee"
 const ATTACK_TYPE_RANGED := "ranged"
+const DEFAULT_TARGET_SCAN_INTERVAL := 0.2
+const DEFAULT_COMBAT_TICK_INTERVAL := 1.0 / 60.0
 
 @export var projectiles_root_path: NodePath
 @export var projectile_data_directory := "res://data/projectiles"
+@export var target_scan_interval := DEFAULT_TARGET_SCAN_INTERVAL
+@export var combat_tick_interval := DEFAULT_COMBAT_TICK_INTERVAL
 
 @onready var projectiles_root: Node3D = get_node(projectiles_root_path)
 
 var _projectile_definitions: Dictionary = {}
 var _attack_cooldowns: Dictionary = {}
+var _target_scan_timers: Dictionary = {}
+var _building_attack_enabled: Dictionary = {}
+var _combat_tick_timer := 0.0
 
 
 func _ready() -> void:
@@ -19,13 +26,22 @@ func _ready() -> void:
 
 
 func _process(delta: float) -> void:
+	_combat_tick_timer += delta
+	var tick_interval := maxf(combat_tick_interval, 0.01)
+	if _combat_tick_timer < tick_interval:
+		return
+
+	var tick_delta := _combat_tick_timer
+	_combat_tick_timer = 0.0
+
+	var enemies := get_tree().get_nodes_in_group("rts_enemies")
 	for building in get_tree().get_nodes_in_group("rts_buildings"):
 		if not (building is Node3D):
 			continue
 
-		_tick_building_attack(building, delta)
+		_tick_building_attack(building, enemies, tick_delta)
 
-	_cleanup_cooldowns()
+	_cleanup_tracking()
 
 
 func _load_projectile_data() -> void:
@@ -34,7 +50,7 @@ func _load_projectile_data() -> void:
 		push_warning("No projectile definitions were loaded from %s." % projectile_data_directory)
 
 
-func _tick_building_attack(building: Node3D, delta: float) -> void:
+func _tick_building_attack(building: Node3D, enemies: Array[Node], delta: float) -> void:
 	if not _can_building_attack(building):
 		return
 
@@ -44,7 +60,16 @@ func _tick_building_attack(building: Node3D, delta: float) -> void:
 	if remaining_cooldown > 0.0:
 		return
 
-	var target := _find_target_for_building(building)
+	if enemies.is_empty():
+		return
+
+	var remaining_scan_time := maxf(float(_target_scan_timers.get(timer_key, _get_initial_target_scan_delay(timer_key))) - delta, 0.0)
+	_target_scan_timers[timer_key] = remaining_scan_time
+	if remaining_scan_time > 0.0:
+		return
+
+	_target_scan_timers[timer_key] = maxf(target_scan_interval, 0.01)
+	var target := _find_target_for_building(building, enemies)
 	if target == null:
 		return
 
@@ -53,6 +78,16 @@ func _tick_building_attack(building: Node3D, delta: float) -> void:
 
 
 func _can_building_attack(building: Node3D) -> bool:
+	var building_id := building.get_instance_id()
+	if _building_attack_enabled.has(building_id):
+		return bool(_building_attack_enabled[building_id])
+
+	var can_attack := _compute_can_building_attack(building)
+	_building_attack_enabled[building_id] = can_attack
+	return can_attack
+
+
+func _compute_can_building_attack(building: Node3D) -> bool:
 	if int(building.get_meta("damage", 0)) <= 0:
 		return false
 
@@ -69,10 +104,10 @@ func _can_building_attack(building: Node3D) -> bool:
 	return false
 
 
-func _find_target_for_building(building: Node3D) -> Node3D:
+func _find_target_for_building(building: Node3D, enemies: Array[Node]) -> Node3D:
 	var best_target: Node3D = null
 	var best_distance := INF
-	for enemy in get_tree().get_nodes_in_group("rts_enemies"):
+	for enemy in enemies:
 		if not (enemy is Node3D):
 			continue
 
@@ -118,7 +153,16 @@ func _launch_projectile(building: Node3D, target: Node3D) -> bool:
 	return true
 
 
-func _cleanup_cooldowns() -> void:
+func _get_initial_target_scan_delay(instance_id: int) -> float:
+	var interval := maxf(target_scan_interval, 0.01)
+	return float(instance_id % 1000) / 1000.0 * interval
+
+
+func _cleanup_tracking() -> void:
 	for timer_key in _attack_cooldowns.keys():
-		if not is_instance_id_valid(int(timer_key)):
-			_attack_cooldowns.erase(timer_key)
+		if is_instance_id_valid(int(timer_key)):
+			continue
+
+		_attack_cooldowns.erase(timer_key)
+		_target_scan_timers.erase(timer_key)
+		_building_attack_enabled.erase(timer_key)

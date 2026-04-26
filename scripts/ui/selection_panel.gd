@@ -84,6 +84,32 @@ func show_building(building: Node) -> void:
 	)
 
 
+func show_map_geometry(map_geometry: Node) -> void:
+	_clear_portrait()
+	name_label.text = String(map_geometry.get_meta("geometry_name", "Map Geometry"))
+	_hide_health_label()
+	show_action_queue([])
+
+	var box := MeshInstance3D.new()
+	var geometry_size: Vector3 = map_geometry.get_meta("geometry_size", Vector3(2.0, 0.5, 2.0))
+	var geometry_material := _create_material(map_geometry.get_meta("geometry_color", Color(0.6, 0.7, 0.8, 0.55)))
+	if String(map_geometry.get_meta("geometry_shape", "box")) == "ramp":
+		box.mesh = _create_ramp_mesh(geometry_size, geometry_material)
+		box.position.y = geometry_size.y * 0.5
+	else:
+		var box_mesh := BoxMesh.new()
+		box_mesh.size = geometry_size
+		box_mesh.material = geometry_material
+		box.mesh = box_mesh
+		box.position.y = box_mesh.size.y * 0.5
+	portrait_root.add_child(box)
+	_apply_portrait_camera(
+		_get_portrait_camera_offset(map_geometry),
+		_get_portrait_camera_target(map_geometry),
+		_get_portrait_camera_fov(map_geometry)
+	)
+
+
 func clear_selection() -> void:
 	_clear_portrait()
 	name_label.text = "No selection"
@@ -179,6 +205,38 @@ func _create_material(color: Color) -> StandardMaterial3D:
 	surface_material.albedo_color = color
 	surface_material.roughness = 0.65
 	return surface_material
+
+
+func _create_ramp_mesh(ramp_size: Vector3, ramp_material: Material) -> ArrayMesh:
+	var half_x := ramp_size.x * 0.5
+	var half_y := ramp_size.y * 0.5
+	var half_z := ramp_size.z * 0.5
+	var ramp_mesh := ArrayMesh.new()
+	var vertices := PackedVector3Array([
+		Vector3(-half_x, -half_y, -half_z),
+		Vector3(half_x, -half_y, -half_z),
+		Vector3(-half_x, -half_y, half_z),
+		Vector3(half_x, -half_y, half_z),
+		Vector3(-half_x, half_y, half_z),
+		Vector3(half_x, half_y, half_z)
+	])
+	var indices := PackedInt32Array([
+		0, 2, 1,
+		1, 2, 3,
+		2, 4, 3,
+		3, 4, 5,
+		0, 1, 4,
+		1, 5, 4,
+		0, 4, 2,
+		1, 3, 5
+	])
+	var arrays := []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = vertices
+	arrays[Mesh.ARRAY_INDEX] = indices
+	ramp_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	ramp_mesh.surface_set_material(0, ramp_material)
+	return ramp_mesh
 
 
 func _create_health_label() -> void:

@@ -19,6 +19,9 @@
   "movement": {
     "type": "flying",
     "move_speed": 10.0,
+    "turn_speed": 1080.0,
+    "turn_alignment_degrees": 11.5,
+    "turn_acceleration_time": 0.03,
     "arrival_distance": 0.2,
     "flight_height": 6.0
   },
@@ -45,14 +48,21 @@
       "hotkey": "V",
       "fallback_hotkey": "X",
       "tooltip": "Destroy"
+    },
+    {
+      "id": "mapping_menu",
+      "label": "Mapping",
+      "slot": [2, 2],
+      "hotkey": "M",
+      "fallback_hotkey": "G",
+      "menu": "map_geometry",
+      "tooltip": "Mapping"
     }
   ],
   "available_buildings": [
     "north_tower",
     "east_hall",
-    "southwest_depot",
-    "spawner",
-    "exit_point"
+    "southwest_depot"
   ],
   "audio": {
     "selection": [

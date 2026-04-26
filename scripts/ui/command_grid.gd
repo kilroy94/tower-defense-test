@@ -338,6 +338,12 @@ func _show_model_preview(slot_index: int, model_data: Dictionary) -> void:
 		capsule_mesh.material = _create_model_material(model_data.get("color", Color(0.6, 0.7, 0.8, 1.0)))
 		mesh_instance.mesh = capsule_mesh
 		mesh_instance.position.y = capsule_mesh.height * 0.5
+	elif model_type == "ramp":
+		mesh_instance.mesh = _create_ramp_mesh(
+			model_data.get("size", Vector3.ONE),
+			_create_model_material(model_data.get("color", Color(0.6, 0.6, 0.55, 1.0)))
+		)
+		mesh_instance.position.y = (model_data.get("size", Vector3.ONE) as Vector3).y * 0.5
 	else:
 		var box_mesh := BoxMesh.new()
 		box_mesh.size = model_data.get("size", Vector3.ONE)
@@ -375,6 +381,38 @@ func _create_model_material(color: Color) -> StandardMaterial3D:
 	surface_material.albedo_color = color
 	surface_material.roughness = 0.65
 	return surface_material
+
+
+func _create_ramp_mesh(ramp_size: Vector3, ramp_material: Material) -> ArrayMesh:
+	var half_x := ramp_size.x * 0.5
+	var half_y := ramp_size.y * 0.5
+	var half_z := ramp_size.z * 0.5
+	var ramp_mesh := ArrayMesh.new()
+	var vertices := PackedVector3Array([
+		Vector3(-half_x, -half_y, -half_z),
+		Vector3(half_x, -half_y, -half_z),
+		Vector3(-half_x, -half_y, half_z),
+		Vector3(half_x, -half_y, half_z),
+		Vector3(-half_x, half_y, half_z),
+		Vector3(half_x, half_y, half_z)
+	])
+	var indices := PackedInt32Array([
+		0, 2, 1,
+		1, 2, 3,
+		2, 4, 3,
+		3, 4, 5,
+		0, 1, 4,
+		1, 5, 4,
+		0, 4, 2,
+		1, 3, 5
+	])
+	var arrays := []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = vertices
+	arrays[Mesh.ARRAY_INDEX] = indices
+	ramp_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	ramp_mesh.surface_set_material(0, ramp_material)
+	return ramp_mesh
 
 
 func _create_button_style(background_color: Color, border_color: Color) -> StyleBoxFlat:

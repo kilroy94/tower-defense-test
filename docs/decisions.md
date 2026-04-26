@@ -18,6 +18,8 @@ Enemies should be unit-like but not player-controllable. Their generic behavior 
 
 Movement type is data-driven under each unit or enemy `movement` block. First-pass `ground` movement uses grid pathing and blocker collision, while `flying` movement uses direct movement at a configured height and ignores ground path blockers.
 
+Move turn rate is also data-driven under each unit or enemy `movement` block. Use `turn_speed` for degrees per second, `turn_alignment_degrees` for the forward cone required before movement starts, and `turn_acceleration_time` for the ramp to full turn speed. The default tuning targets Dota-like movement: `1080.0` degrees per second, an `11.5` degree alignment threshold, and a short `0.03s` ramp. `turn_speed <= 0` is the explicit instant-turn escape hatch.
+
 Combat should be data-driven at the object-definition level and generic in runtime behavior. Units, enemies, and buildings should all describe their combat tuning through their own JSON data while shared attack processing lives in reusable combat systems.
 
 Attack delivery should distinguish between `melee` and `ranged` rather than hardcoding separate behavior trees per actor type. Melee attacks resolve directly when their checks pass, while ranged attacks spawn projectile actors that track targets and apply damage on impact.
@@ -36,11 +38,17 @@ Building commands should be data-driven in each building JSON file, while shared
 
 Grid occupancy separates placement occupancy from path blocking. A pathable building still prevents another building from being placed on its footprint, but it does not block pathfinding.
 
-Enemy pathfinding uses a stricter filtered walkability check than the generic grid. Building-occupied cells are blocked for enemies unless the building has an `exit_enemy` command.
+Enemy pathfinding uses a stricter filtered walkability check than the generic grid. Occupied cells are blocked for enemies unless the occupying map geometry has the `end_point` tag.
 
 Enemy exit detection should use the exit building's grid footprint rather than visual mesh size so the removal area matches pathfinding goals.
 
 Enemy building attacks are a pathfinding fallback, not a sticky combat state. If an enemy can path to the exit, it should clear any cached building attack target and move on.
+
+Enemy pathfinding must use the grid-owned map geometry index for terrain and ramp lookups. `MapGeometry` registers its footprint with `MapGrid`, including stacked pieces that do not occupy the base placement cell. Do not scan all `rts_map_geometry` nodes inside enemy walkability, height, or neighbor-expansion code; that pattern causes severe repath hitches as map geometry and enemy counts grow.
+
+Endpoint-tagged map geometry is treated as an enemy goal/removal volume at its base height. Do not make ground enemies climb to the top of an endpoint cube unless that piece is intentionally also acting as elevated terrain through a future explicit rule.
+
+Enemy exit routing belongs in `PathingSystem`. It builds reverse flow fields from endpoint target cells, caches the last completed answer by request, and rebuilds dirty fields when `MapGrid` pathing revision changes. Rebuild work should be proactive and cell-budgeted per frame so building placement does not make one enemy pay a full no-path search. `RtsEnemy` should delegate cell paths, terrain height, and traversal checks to `PathingSystem`; avoid per-enemy full-grid no-path searches on AI polls.
 
 Building physics collision is also data-driven. `walkable_by` controls which actor types can physically pass through a building, independently from grid pathability.
 
@@ -65,5 +73,8 @@ Current entry points:
 - `scripts/systems/building_combat_system.gd`
 - `scripts/systems/game_data.gd`
 - `scripts/systems/building_action_system.gd`
+- `scripts/systems/world_grid.gd`
+- `scripts/systems/map_geometry.gd`
+- `scripts/systems/pathing_system.gd`
 
 Template JSON files use `"template": true` and are ignored by runtime loading. They exist as a reference when creating new object definitions.

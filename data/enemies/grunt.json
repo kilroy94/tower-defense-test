@@ -14,6 +14,9 @@
   "movement": {
     "type": "ground",
     "move_speed": 6.2,
+    "turn_speed": 1080.0,
+    "turn_alignment_degrees": 11.5,
+    "turn_acceleration_time": 0.03,
     "arrival_distance": 0.2,
     "flight_height": 3.0
   },
@@ -33,7 +36,6 @@
   },
   "ai": {
     "role": "path_to_exit",
-    "target": "exit_point",
     "poll_interval": 0.5,
     "can_be_player_controlled": false
   }

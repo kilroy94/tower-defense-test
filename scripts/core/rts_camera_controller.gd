@@ -8,9 +8,9 @@ extends Node3D
 @export var camera_arc_scroll_damping: float = 8.0
 @export var camera_arc_max_scroll_speed: float = 1.2
 @export var camera_arc_smoothing: float = 9.0
-@export var far_camera_offset := Vector3(0.0, 50.0, 65.0)
+@export var far_camera_offset := Vector3(0.0, 72.0, 65.0)
 @export var close_camera_offset := Vector3(0.0, 10.0, 16.0)
-@export var far_tilt_degrees: float = -55.0
+@export var far_tilt_degrees: float = -60.0
 @export var close_tilt_degrees: float = -28.0
 @export var min_tilt_degrees: float = -72.0
 @export var max_tilt_degrees: float = -28.0

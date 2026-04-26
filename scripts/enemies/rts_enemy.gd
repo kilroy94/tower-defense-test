@@ -9,13 +9,16 @@ enum EnemyState {
 
 const COLLISION_LAYER_WORLD := 1 << 0
 const COLLISION_LAYER_BLOCKS_ENEMIES := 1 << 2
-const ACTION_EXIT_ENEMY := "exit_enemy"
+const MAP_GEOMETRY_TAG_END_POINT := "end_point"
 const CombatUtilsRef = preload("res://scripts/systems/combat_utils.gd")
 const MOVEMENT_TYPE_GROUND := "ground"
 const MOVEMENT_TYPE_FLYING := "flying"
 const FLIGHT_SHADOW_HEIGHT := 0.045
 const FLIGHT_SHADOW_ALPHA := 0.36
 const DAMAGE_ROLLING_WINDOW_SECONDS := 10.0
+const DEBUG_PATH_LINE_HEIGHT_OFFSET := 0.14
+const DEFAULT_TURN_ALIGNMENT_DEGREES := 11.5
+const DEFAULT_TURN_ACCELERATION_TIME := 0.03
 
 @export var grid_path: NodePath
 @export var enemy_id := "grunt"
@@ -23,6 +26,9 @@ const DAMAGE_ROLLING_WINDOW_SECONDS := 10.0
 @export var enemy_name := "Enemy"
 @export var movement_type := MOVEMENT_TYPE_GROUND
 @export var move_speed := 7.0
+@export var turn_speed := 1080.0
+@export var turn_alignment_degrees := DEFAULT_TURN_ALIGNMENT_DEGREES
+@export var turn_acceleration_time := DEFAULT_TURN_ACCELERATION_TIME
 @export var body_color: Color = Color(0.75, 0.18, 0.18, 1.0)
 @export var marker_color: Color = Color(0.12, 0.02, 0.02, 1.0)
 @export var arrival_distance := 0.2
@@ -47,6 +53,7 @@ const DAMAGE_ROLLING_WINDOW_SECONDS := 10.0
 @export var damage_debug_font_size := 72
 @export var damage_debug_height_offset := 1.05
 @export var damage_debug_outline_size := 12
+@export var show_path_debug := true
 
 @onready var map_grid: MapGrid = get_node(grid_path)
 
@@ -70,10 +77,15 @@ var _health_regen_remainder := 0.0
 var _damage_events: Array[Dictionary] = []
 var _last_damage_taken := 0
 var _damage_debug_label: Label3D = null
+var _pathing_system: Node = null
+var _debug_path_line: MeshInstance3D = null
+var _current_turn_speed := 0.0
+var _last_turn_sign := 0.0
 
 
 func _ready() -> void:
 	_apply_enemy_data()
+	_pathing_system = _find_pathing_system()
 	_ai_poll_timer = randf() * ai_poll_interval
 	collision_mask = _get_collision_mask_for_movement_type()
 	add_to_group("rts_enemies")
@@ -83,6 +95,9 @@ func _ready() -> void:
 	set_meta("enemy_id", enemy_id)
 	set_meta("enemy_name", enemy_name)
 	set_meta("movement_type", movement_type)
+	set_meta("turn_speed", turn_speed)
+	set_meta("turn_alignment_degrees", turn_alignment_degrees)
+	set_meta("turn_acceleration_time", turn_acceleration_time)
 	set_meta("stats", _get_runtime_stats())
 	set_meta("max_health", max_health)
 	set_meta("current_health", current_health)
@@ -101,6 +116,7 @@ func _ready() -> void:
 	_create_visuals()
 	_create_flight_shadow()
 	_create_damage_debug_label()
+	_create_debug_path_line()
 
 
 func _physics_process(delta: float) -> void:
@@ -125,9 +141,11 @@ func issue_goal_order(target_world_position: Vector3) -> bool:
 	_rebuild_path_to_target()
 	if _path.is_empty():
 		_state = EnemyState.IDLE
+		_refresh_debug_path_line()
 		return false
 
 	_state = EnemyState.MOVING_TO_GOAL
+	_refresh_debug_path_line()
 	return true
 
 
@@ -139,6 +157,7 @@ func clear_goal_order() -> void:
 	_path_index = 0
 	velocity = Vector3.ZERO
 	_state = EnemyState.IDLE
+	_refresh_debug_path_line()
 
 
 func get_current_cell() -> Vector2i:
@@ -217,6 +236,9 @@ func _apply_enemy_data() -> void:
 	var movement: Dictionary = definition.get("movement", {})
 	movement_type = String(movement.get("type", movement_type))
 	move_speed = float(movement.get("move_speed", move_speed))
+	turn_speed = float(movement.get("turn_speed", turn_speed))
+	turn_alignment_degrees = float(movement.get("turn_alignment_degrees", turn_alignment_degrees))
+	turn_acceleration_time = float(movement.get("turn_acceleration_time", turn_acceleration_time))
 	arrival_distance = float(movement.get("arrival_distance", arrival_distance))
 	flight_height = float(movement.get("flight_height", flight_height))
 
@@ -310,6 +332,8 @@ func _die() -> void:
 
 	_is_dying = true
 	velocity = Vector3.ZERO
+	if _debug_path_line != null and is_instance_valid(_debug_path_line):
+		_debug_path_line.visible = false
 	_play_death_sound()
 	queue_free()
 
@@ -338,29 +362,29 @@ func _update_default_ai(delta: float) -> void:
 	if _state == EnemyState.MOVING_TO_GOAL and not _is_goal_building_valid():
 		clear_goal_order()
 
-	var exit_point := _find_exit_point()
-	if exit_point == null:
+	var end_point := _find_end_point()
+	if end_point == null:
 		if _state == EnemyState.MOVING_TO_GOAL:
 			clear_goal_order()
 		return
 
 	if is_flying():
-		_fly_to_exit_point(exit_point)
+		_fly_to_end_point(end_point)
 		return
 
 	if _state == EnemyState.MOVING_TO_GOAL \
-		and _goal_building == exit_point \
+		and _goal_building == end_point \
 		and _attack_target_building == null:
 		if _is_remaining_path_walkable():
 			return
 
-		if _try_path_to_exit_point(exit_point):
+		if _try_path_to_end_point(end_point):
 			return
 
-	if _try_path_to_exit_point(exit_point):
+	if _try_path_to_end_point(end_point):
 		return
 
-	_try_path_to_blocking_building(exit_point)
+	_try_path_to_blocking_building(end_point)
 
 
 func _update_attack_cooldown(delta: float) -> void:
@@ -402,15 +426,15 @@ func _try_reroute_before_building_attack() -> bool:
 		return false
 
 	_attack_reroute_timer = ai_poll_interval
-	var exit_point := _find_exit_point()
-	if exit_point == null:
+	var end_point := _find_end_point()
+	if end_point == null:
 		return false
 
-	if _goal_building == exit_point and _is_remaining_path_walkable():
+	if _goal_building == end_point and _is_remaining_path_walkable():
 		_attack_target_building = null
 		return true
 
-	return _try_path_to_exit_point(exit_point)
+	return _try_path_to_end_point(end_point)
 
 
 func _update_attack_target() -> void:
@@ -447,20 +471,20 @@ func _should_path_to_exit() -> bool:
 	return String(ai_profile.get("role", "path_to_exit")) == "path_to_exit"
 
 
-func _try_path_to_exit_point(exit_point: Node = null) -> bool:
-	if exit_point == null:
-		exit_point = _find_exit_point()
+func _try_path_to_end_point(end_point: Node = null) -> bool:
+	if end_point == null:
+		end_point = _find_end_point()
 
-	if exit_point == null:
+	if end_point == null:
 		if _state == EnemyState.MOVING_TO_GOAL:
 			clear_goal_order()
 		return false
 
-	var exit_path_result := _get_path_result_to_goal_building(exit_point)
+	var exit_path_result := _get_path_result_to_goal_building(end_point)
 	if exit_path_result.is_empty():
 		return false
 
-	_goal_building = exit_point
+	_goal_building = end_point
 	_target_world_position = exit_path_result["target_world_position"]
 	_target_cell = exit_path_result["target_cell"]
 	_cell_path = exit_path_result["cell_path"]
@@ -468,17 +492,18 @@ func _try_path_to_exit_point(exit_point: Node = null) -> bool:
 	_path_index = 0
 	_attack_target_building = null
 	_state = EnemyState.MOVING_TO_GOAL
+	_refresh_debug_path_line()
 	return true
 
 
-func _fly_to_exit_point(exit_point: Node) -> void:
-	if not is_instance_valid(exit_point) or not (exit_point is Node3D):
+func _fly_to_end_point(end_point: Node) -> void:
+	if not is_instance_valid(end_point) or not (end_point is Node3D):
 		clear_goal_order()
 		return
 
-	_goal_building = exit_point
+	_goal_building = end_point
 	_attack_target_building = null
-	_target_world_position = _with_enemy_height(_get_building_center_world_position(exit_point))
+	_target_world_position = _with_enemy_height(_get_building_center_world_position(end_point))
 	_target_cell = map_grid.world_to_cell(_target_world_position)
 	_path = [_target_world_position]
 	_cell_path.clear()
@@ -486,9 +511,15 @@ func _fly_to_exit_point(exit_point: Node) -> void:
 		_cell_path.append(_target_cell)
 	_path_index = 0
 	_state = EnemyState.MOVING_TO_GOAL
+	_refresh_debug_path_line()
 
 
 func _try_path_to_blocking_building(goal_building: Node) -> void:
+	if not _has_attackable_buildings():
+		_attack_target_building = null
+		_state = EnemyState.IDLE
+		return
+
 	var obstruction_result := _find_blocking_building_to_attack(goal_building)
 	if obstruction_result.is_empty():
 		_attack_target_building = _find_attackable_building_in_range()
@@ -507,9 +538,11 @@ func _try_path_to_blocking_building(goal_building: Node) -> void:
 		else:
 			_attack_target_building = _find_attackable_building_in_range()
 			_state = EnemyState.IDLE
+		_refresh_debug_path_line()
 		return
 
 	_state = EnemyState.MOVING_TO_GOAL
+	_refresh_debug_path_line()
 
 
 func _find_blocking_building_to_attack(goal_building: Node) -> Dictionary:
@@ -528,13 +561,8 @@ func _find_blocking_building_to_attack(goal_building: Node) -> Dictionary:
 
 	while not frontier.is_empty():
 		var cell: Vector2i = frontier.pop_front()
-		var neighbor_offsets: Array[Vector2i] = [Vector2i.RIGHT, Vector2i.LEFT, Vector2i.DOWN, Vector2i.UP]
-		for offset in neighbor_offsets:
-			var neighbor: Vector2i = cell + offset
-			if not map_grid.is_cell_in_bounds(neighbor):
-				continue
-
-			if _is_enemy_cell_walkable(neighbor):
+		for neighbor in _get_cardinal_neighbor_cells(cell):
+			if _can_enemy_traverse_between_cells(cell, neighbor):
 				if not visited.has(neighbor):
 					visited[neighbor] = true
 					frontier.append(neighbor)
@@ -618,6 +646,14 @@ func _find_attackable_building_in_range() -> Node3D:
 	return best_target
 
 
+func _has_attackable_buildings() -> bool:
+	for building in get_tree().get_nodes_in_group("rts_buildings"):
+		if building is Node and can_attack_target(building):
+			return true
+
+	return false
+
+
 func _get_preferred_attack_target() -> Node3D:
 	if _goal_building == null or not is_instance_valid(_goal_building):
 		return null
@@ -637,11 +673,10 @@ func _face_attack_target(target: Node3D) -> void:
 	look_at(global_position + direction.normalized(), Vector3.UP)
 
 
-func _find_exit_point() -> Node:
-	var target_building_id := String(ai_profile.get("target", "exit_point"))
-	for building in get_tree().get_nodes_in_group("rts_buildings"):
-		if building is Node and building.has_meta("building_id") and String(building.get_meta("building_id")) == target_building_id:
-			return building
+func _find_end_point() -> Node:
+	for map_geometry in get_tree().get_nodes_in_group("rts_map_geometry_tag_%s" % MAP_GEOMETRY_TAG_END_POINT):
+		if map_geometry is Node:
+			return map_geometry
 
 	return null
 
@@ -671,6 +706,10 @@ func _get_path_result_to_goal_building(building: Node) -> Dictionary:
 
 
 func _get_goal_cells_for_building(building: Node) -> Array[Vector2i]:
+	var pathing_system: Node = _get_pathing_system()
+	if pathing_system != null:
+		return pathing_system.get_goal_cells_for_node(building, movement_type)
+
 	var target_cells: Array[Vector2i] = []
 	if not building.has_meta("grid_anchor_cell") or not building.has_meta("grid_footprint"):
 		return target_cells
@@ -715,12 +754,16 @@ func _rebuild_path_to_target() -> void:
 	_cell_path = path_result.get("cell_path", [])
 	_path = path_result.get("path", [])
 	_path_index = 0
+	_refresh_debug_path_line()
 
 
 func _get_path_result_to_world_position(target_world_position: Vector3) -> Dictionary:
 	var start_cell := get_current_cell()
 	var target_cell := map_grid.world_to_cell(target_world_position)
-	var cell_path := map_grid.find_path_with_filter(start_cell, target_cell, _is_enemy_cell_walkable)
+	target_world_position.y = _get_terrain_height_for_cell(target_cell)
+	var target_lookup: Dictionary = {}
+	target_lookup[target_cell] = true
+	var cell_path := _find_enemy_cell_path_to_any(start_cell, target_lookup)
 	var path: Array[Vector3] = []
 	if start_cell == target_cell:
 		path.append(target_world_position)
@@ -739,7 +782,7 @@ func _get_path_result_to_world_position(target_world_position: Vector3) -> Dicti
 		if index == cell_path.size() - 1:
 			raw_path.append(target_world_position)
 		else:
-			raw_path.append(map_grid.cell_to_world(cell, global_position.y))
+			raw_path.append(map_grid.cell_to_world(cell, _get_terrain_height_for_cell(cell)))
 
 	return {
 		"target_cell": target_cell,
@@ -758,32 +801,16 @@ func _get_path_result_to_any_cell(target_cells: Array[Vector2i]) -> Dictionary:
 	if target_lookup.is_empty():
 		return {}
 
-	var frontier: Array[Vector2i] = [start_cell]
-	var came_from: Dictionary = {start_cell: start_cell}
-	var reached_cell := Vector2i(-1, -1)
-	while not frontier.is_empty():
-		var current_cell: Vector2i = frontier.pop_front()
-		if target_lookup.has(current_cell):
-			reached_cell = current_cell
-			break
-
-		for neighbor_cell in _get_enemy_walkable_neighbor_cells(current_cell):
-			if came_from.has(neighbor_cell):
-				continue
-
-			came_from[neighbor_cell] = current_cell
-			frontier.append(neighbor_cell)
-
-	if not map_grid.is_cell_in_bounds(reached_cell):
+	var cell_path := _find_enemy_cell_path_to_any(start_cell, target_lookup)
+	if cell_path.is_empty() and not target_lookup.has(start_cell):
 		return {}
 
-	var cell_path: Array[Vector2i] = []
-	var current_path_cell := reached_cell
-	while current_path_cell != start_cell:
-		cell_path.push_front(current_path_cell)
-		current_path_cell = came_from[current_path_cell]
+	var reached_cell := start_cell
+	if not cell_path.is_empty():
+		reached_cell = cell_path[cell_path.size() - 1]
 
 	var target_world_position := map_grid.cell_to_world(reached_cell, global_position.y)
+	target_world_position.y = _get_terrain_height_for_cell(reached_cell)
 	var path: Array[Vector3] = []
 	if start_cell == reached_cell:
 		path.append(target_world_position)
@@ -794,7 +821,7 @@ func _get_path_result_to_any_cell(target_cells: Array[Vector2i]) -> Dictionary:
 			if index == cell_path.size() - 1:
 				raw_path.append(target_world_position)
 			else:
-				raw_path.append(map_grid.cell_to_world(cell, global_position.y))
+				raw_path.append(map_grid.cell_to_world(cell, _get_terrain_height_for_cell(cell)))
 
 		path = _smooth_path(raw_path)
 
@@ -806,15 +833,18 @@ func _get_path_result_to_any_cell(target_cells: Array[Vector2i]) -> Dictionary:
 	}
 
 
-func _get_enemy_walkable_neighbor_cells(cell: Vector2i) -> Array[Vector2i]:
-	var neighbors: Array[Vector2i] = []
-	var neighbor_offsets: Array[Vector2i] = [Vector2i.RIGHT, Vector2i.LEFT, Vector2i.DOWN, Vector2i.UP]
-	for offset in neighbor_offsets:
-		var neighbor_cell := cell + offset
-		if _is_enemy_cell_walkable(neighbor_cell):
-			neighbors.append(neighbor_cell)
+func _find_enemy_cell_path_to_any(start_cell: Vector2i, target_lookup: Dictionary) -> Array[Vector2i]:
+	var pathing_system: Node = _get_pathing_system()
+	if pathing_system == null:
+		push_warning("RtsEnemy requires PathingSystem for enemy path queries.")
+		return []
 
-	return neighbors
+	var target_cells: Array[Vector2i] = []
+	for target_cell in target_lookup.keys():
+		if target_cell is Vector2i:
+			target_cells.append(target_cell)
+
+	return pathing_system.get_path_to_any_cell(start_cell, target_cells, movement_type)
 
 
 func _follow_path(_delta: float) -> void:
@@ -823,37 +853,44 @@ func _follow_path(_delta: float) -> void:
 		return
 
 	if _is_current_waypoint_blocked():
-		if _is_goal_building_valid() and _building_has_exit_command(_goal_building):
-			_try_path_to_exit_point(_goal_building)
+		if _is_goal_building_valid() and _is_end_point_geometry(_goal_building):
+			_try_path_to_end_point(_goal_building)
 		else:
 			_rebuild_path_to_target()
 
 		if _path_index >= _path.size():
 			_state = EnemyState.IDLE
+			_refresh_debug_path_line()
 			return
 
 	var target := _path[_path_index]
-	var previous_position := global_position
 	var to_target := target - global_position
 	to_target.y = 0.0
 	if to_target.length() > arrival_distance:
-		velocity = to_target.normalized() * move_speed
-		move_and_slide()
+		var move_direction := to_target.normalized()
+		if _turn_toward_direction(move_direction, _delta):
+			velocity = move_direction * move_speed
+			move_and_slide()
+			if not is_flying():
+				_snap_to_current_terrain_height()
+		else:
+			velocity = Vector3.ZERO
 	else:
 		velocity = Vector3.ZERO
-
-	var travel_direction := global_position - previous_position
-	travel_direction.y = 0.0
-	if travel_direction.length_squared() > 0.0001:
-		look_at(global_position + travel_direction.normalized(), Vector3.UP)
+		if not is_flying():
+			_snap_to_current_terrain_height()
 
 	if Vector2(global_position.x, global_position.z).distance_to(Vector2(target.x, target.z)) <= arrival_distance:
 		_path_index += 1
+		_refresh_debug_path_line()
+	else:
+		_refresh_debug_path_line()
 
 
 func _complete_goal_order() -> void:
 	velocity = Vector3.ZERO
 	_state = EnemyState.REACHED_GOAL
+	_refresh_debug_path_line()
 
 
 func _is_current_waypoint_blocked() -> bool:
@@ -867,33 +904,60 @@ func _is_current_waypoint_blocked() -> bool:
 
 
 func _is_remaining_path_walkable() -> bool:
+	var previous_cell := get_current_cell()
 	for index in range(_path_index, _path.size()):
-		if not _is_enemy_cell_walkable(map_grid.world_to_cell(_path[index])):
+		var cell := map_grid.world_to_cell(_path[index])
+		if cell == previous_cell:
+			continue
+
+		if not _can_enemy_traverse_between_cells(previous_cell, cell):
 			return false
 
+		previous_cell = cell
 	return true
 
 
 func _is_enemy_cell_walkable(cell: Vector2i) -> bool:
-	if not map_grid.is_cell_in_bounds(cell):
-		return false
+	var pathing_system: Node = _get_pathing_system()
+	return pathing_system != null and pathing_system.is_cell_walkable_for_movement(cell, movement_type)
 
-	var occupant: Variant = map_grid.get_occupant(cell)
-	if occupant == null:
-		return map_grid.is_cell_walkable(cell)
 
-	if occupant is Node and _building_has_exit_command(occupant):
+func _can_enemy_traverse_between_cells(from_cell: Vector2i, to_cell: Vector2i) -> bool:
+	var pathing_system: Node = _get_pathing_system()
+	return pathing_system != null and pathing_system.can_traverse_between_cells(from_cell, to_cell, movement_type)
+
+
+func _snap_to_current_terrain_height() -> void:
+	var terrain_height := _get_terrain_height_for_cell(get_current_cell())
+	global_position.y = terrain_height
+
+
+func _get_terrain_height_for_cell(cell: Vector2i) -> float:
+	var pathing_system: Node = _get_pathing_system()
+	if pathing_system == null:
+		return global_position.y
+
+	return pathing_system.get_terrain_height_for_cell(cell, movement_type)
+
+
+func _is_end_point_geometry(node: Node) -> bool:
+	if node.has_method("has_tag") and bool(node.call("has_tag", MAP_GEOMETRY_TAG_END_POINT)):
 		return true
 
-	return false
-
-
-func _building_has_exit_command(building: Node) -> bool:
-	for command in building.get_meta("commands", []):
-		if command is Dictionary and String(command.get("action", "")) == ACTION_EXIT_ENEMY:
+	for tag in node.get_meta("geometry_tags", []):
+		if String(tag) == MAP_GEOMETRY_TAG_END_POINT:
 			return true
 
 	return false
+
+
+func _get_cardinal_neighbor_cells(cell: Vector2i) -> Array[Vector2i]:
+	return [
+		cell + Vector2i.RIGHT,
+		cell + Vector2i.LEFT,
+		cell + Vector2i.DOWN,
+		cell + Vector2i.UP
+	]
 
 
 func _smooth_path(raw_path: Array[Vector3]) -> Array[Vector3]:
@@ -910,6 +974,82 @@ func _get_collision_mask_for_movement_type() -> int:
 		return 0
 
 	return COLLISION_LAYER_WORLD | COLLISION_LAYER_BLOCKS_ENEMIES
+
+
+func _turn_toward_direction(target_direction: Vector3, delta: float) -> bool:
+	target_direction.y = 0.0
+	if target_direction.length_squared() <= 0.0001:
+		_reset_turn_ramp()
+		return true
+
+	var normalized_target := target_direction.normalized()
+	if turn_speed <= 0.0:
+		look_at(global_position + normalized_target, Vector3.UP)
+		_reset_turn_ramp()
+		return true
+
+	var current_forward := -global_transform.basis.z
+	current_forward.y = 0.0
+	if current_forward.length_squared() <= 0.0001:
+		look_at(global_position + normalized_target, Vector3.UP)
+		_reset_turn_ramp()
+		return true
+
+	current_forward = current_forward.normalized()
+	var angle := current_forward.signed_angle_to(normalized_target, Vector3.UP)
+	var alignment_angle := deg_to_rad(maxf(turn_alignment_degrees, 0.0))
+	var is_aligned_before_turn := absf(angle) <= alignment_angle
+	if is_zero_approx(angle):
+		_reset_turn_ramp()
+		return true
+
+	var max_turn := _get_turn_step(angle, delta)
+	if absf(angle) <= max_turn:
+		look_at(global_position + normalized_target, Vector3.UP)
+		_reset_turn_ramp()
+		return true
+
+	rotate_y(clampf(angle, -max_turn, max_turn))
+	return is_aligned_before_turn or absf(angle) - max_turn <= alignment_angle
+
+
+func _get_turn_step(angle: float, delta: float) -> float:
+	var turn_sign := signf(angle)
+	if not is_equal_approx(turn_sign, _last_turn_sign):
+		_current_turn_speed = 0.0
+		_last_turn_sign = turn_sign
+
+	var max_turn_speed := deg_to_rad(maxf(turn_speed, 0.0))
+	if turn_acceleration_time <= 0.0:
+		_current_turn_speed = max_turn_speed
+	else:
+		_current_turn_speed = minf(
+			_current_turn_speed + (max_turn_speed / turn_acceleration_time) * delta,
+			max_turn_speed
+		)
+
+	return _current_turn_speed * delta
+
+
+func _reset_turn_ramp() -> void:
+	_current_turn_speed = 0.0
+	_last_turn_sign = 0.0
+
+
+func _get_pathing_system() -> Node:
+	if _pathing_system != null and is_instance_valid(_pathing_system):
+		return _pathing_system
+
+	_pathing_system = _find_pathing_system()
+	return _pathing_system
+
+
+func _find_pathing_system() -> Node:
+	for pathing_node in get_tree().get_nodes_in_group("rts_pathing_system"):
+		if pathing_node is Node and pathing_node.has_method("get_path_to_any_cell"):
+			return pathing_node
+
+	return null
 
 
 func _create_visuals() -> void:
@@ -994,6 +1134,59 @@ func _create_damage_debug_label() -> void:
 	_damage_debug_label.outline_modulate = Color(0.03, 0.025, 0.02, 1.0)
 	add_child(_damage_debug_label)
 	_update_damage_debug_label_text()
+
+
+func _create_debug_path_line() -> void:
+	if not show_path_debug:
+		return
+
+	_debug_path_line = MeshInstance3D.new()
+	_debug_path_line.name = "DebugPathLine"
+	_debug_path_line.top_level = true
+	_debug_path_line.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_debug_path_line.material_override = _create_debug_path_material()
+	add_child(_debug_path_line)
+	_refresh_debug_path_line()
+
+
+func _refresh_debug_path_line() -> void:
+	if not show_path_debug:
+		return
+
+	if _debug_path_line == null or not is_instance_valid(_debug_path_line):
+		return
+
+	if _state != EnemyState.MOVING_TO_GOAL or _path_index >= _path.size():
+		_debug_path_line.visible = false
+		_debug_path_line.mesh = null
+		return
+
+	var path_mesh := ImmediateMesh.new()
+	path_mesh.surface_begin(Mesh.PRIMITIVE_LINE_STRIP)
+	path_mesh.surface_add_vertex(_get_debug_path_point(global_position))
+	for index in range(_path_index, _path.size()):
+		path_mesh.surface_add_vertex(_get_debug_path_point(_path[index]))
+	path_mesh.surface_end()
+
+	_debug_path_line.global_transform = Transform3D.IDENTITY
+	_debug_path_line.mesh = path_mesh
+	_debug_path_line.visible = true
+
+
+func _get_debug_path_point(world_position: Vector3) -> Vector3:
+	return Vector3(
+		world_position.x,
+		world_position.y + DEBUG_PATH_LINE_HEIGHT_OFFSET,
+		world_position.z
+	)
+
+
+func _create_debug_path_material() -> StandardMaterial3D:
+	var material := StandardMaterial3D.new()
+	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	material.albedo_color = Color(1.0, 0.92, 0.2, 1.0)
+	material.no_depth_test = true
+	return material
 
 
 func _update_damage_debug_label_text() -> void:

@@ -9,6 +9,9 @@ extends MeshInstance3D
 
 var _occupied_cells: Dictionary = {}
 var _path_blocked_cells: Dictionary = {}
+var _map_geometry_by_cell: Dictionary = {}
+var _map_geometry_revision := 0
+var _pathing_revision := 0
 
 
 func _ready() -> void:
@@ -148,22 +151,100 @@ func occupy(anchor_cell: Vector2i, footprint: Vector2i = Vector2i.ONE, occupant:
 		if blocks_pathing:
 			_path_blocked_cells[cell] = true
 
+	_pathing_revision += 1
 	return true
 
 
 func release(anchor_cell: Vector2i, footprint: Vector2i = Vector2i.ONE) -> void:
+	var changed := false
 	for cell in get_footprint_cells(anchor_cell, footprint):
+		changed = changed or _occupied_cells.has(cell) or _path_blocked_cells.has(cell)
 		_occupied_cells.erase(cell)
 		_path_blocked_cells.erase(cell)
 
+	if changed:
+		_pathing_revision += 1
+
 
 func clear_occupancy() -> void:
+	if not _occupied_cells.is_empty() or not _path_blocked_cells.is_empty():
+		_pathing_revision += 1
+
 	_occupied_cells.clear()
 	_path_blocked_cells.clear()
 
 
 func get_occupant(cell: Vector2i) -> Variant:
 	return _occupied_cells.get(cell)
+
+
+func register_map_geometry(map_geometry: Node, anchor_cell: Vector2i, footprint: Vector2i) -> void:
+	for cell in get_footprint_cells(anchor_cell, footprint):
+		if not is_cell_in_bounds(cell):
+			continue
+
+		var geometry_stack: Array = _map_geometry_by_cell.get(cell, [])
+		if not geometry_stack.has(map_geometry):
+			geometry_stack.append(map_geometry)
+			_map_geometry_by_cell[cell] = geometry_stack
+
+	_map_geometry_revision += 1
+	_pathing_revision += 1
+
+
+func unregister_map_geometry(map_geometry: Node, anchor_cell: Vector2i, footprint: Vector2i) -> void:
+	for cell in get_footprint_cells(anchor_cell, footprint):
+		if not _map_geometry_by_cell.has(cell):
+			continue
+
+		var geometry_stack: Array = _map_geometry_by_cell[cell]
+		geometry_stack.erase(map_geometry)
+		if geometry_stack.is_empty():
+			_map_geometry_by_cell.erase(cell)
+		else:
+			_map_geometry_by_cell[cell] = geometry_stack
+
+	_map_geometry_revision += 1
+	_pathing_revision += 1
+
+
+func get_top_map_geometry_at_cell(cell: Vector2i) -> Node:
+	var geometry_stack: Array = _map_geometry_by_cell.get(cell, [])
+	var best_geometry: Node = null
+	var best_height := -INF
+	var stack_changed := false
+	for index in range(geometry_stack.size() - 1, -1, -1):
+		var map_geometry: Variant = geometry_stack[index]
+		if not (map_geometry is Node) or not is_instance_valid(map_geometry):
+			geometry_stack.remove_at(index)
+			stack_changed = true
+			continue
+
+		var top_height := _get_registered_map_geometry_top_height(map_geometry)
+		if top_height > best_height:
+			best_height = top_height
+			best_geometry = map_geometry
+
+	if stack_changed:
+		if geometry_stack.is_empty():
+			_map_geometry_by_cell.erase(cell)
+		else:
+			_map_geometry_by_cell[cell] = geometry_stack
+		_map_geometry_revision += 1
+
+	return best_geometry
+
+
+func get_map_geometry_revision() -> int:
+	return _map_geometry_revision
+
+
+func get_pathing_revision() -> int:
+	return _pathing_revision
+
+
+func notify_pathing_changed() -> void:
+	_pathing_revision += 1
 
 
 func get_half_extents() -> Vector2:
@@ -258,3 +339,9 @@ func _is_cell_walkable_with_filter(cell: Vector2i, is_walkable_filter: Callable)
 
 func _get_manhattan_distance(a: Vector2i, b: Vector2i) -> float:
 	return float(abs(a.x - b.x) + abs(a.y - b.y))
+
+
+func _get_registered_map_geometry_top_height(map_geometry: Node) -> float:
+	var base_height := float(map_geometry.get_meta("geometry_base_height", 0.0))
+	var size: Vector3 = map_geometry.get_meta("geometry_size", Vector3.ZERO)
+	return base_height + size.y

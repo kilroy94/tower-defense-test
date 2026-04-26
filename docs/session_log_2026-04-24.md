@@ -22,7 +22,7 @@
 - Extended `GameData` with projectile loading and normalization, including template filtering.
 - Added `BuildingCombatSystem` so placed ranged buildings acquire the nearest valid enemy in range and launch their configured projectile.
 - Added first-pass enemy death cleanup when damage reduces health to zero.
-- Fixed Exit Point removal to use the building grid footprint so enemies are removed from the same area they can path into.
+- Fixed endpoint removal to use the grid footprint so enemies are removed from the same area they can path into.
 - Refined enemy obstruction attacks so grunts recheck for a valid exit path before choosing or continuing a building attack.
 - Reworked that obstruction recheck to avoid poll-time hitches: removed the pre-swing path probe, replaced per-cell exit A* checks with a single multi-target search, and staggered enemies' first AI poll.
 - Fixed moving enemies failing to reroute after new towers blocked their current exit path by checking remaining path walkability before taking the cheap "already moving to exit" early return.

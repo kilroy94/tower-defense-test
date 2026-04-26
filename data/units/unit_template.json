@@ -20,6 +20,9 @@
   "movement": {
     "type": "ground",
     "move_speed": 8.0,
+    "turn_speed": 1080.0,
+    "turn_alignment_degrees": 11.5,
+    "turn_acceleration_time": 0.03,
     "arrival_distance": 0.2,
     "flight_height": 6.0
   },
