@@ -5,7 +5,6 @@
 .export/
 *.tmp
 *.import
-export_presets.cfg
 
 # Keep shared working docs tracked, but keep local project context private.
 PROJECT_CONTEXT.md
