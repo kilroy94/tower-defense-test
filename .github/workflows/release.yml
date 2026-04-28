@@ -1,0 +1,103 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Tag to publish. Defaults to the current ref name."
+        required: false
+        type: string
+      export_preset:
+        description: "Existing Godot Windows export preset name."
+        required: false
+        default: "Windows Desktop"
+        type: string
+
+permissions:
+  contents: write
+
+env:
+  GODOT_VERSION: "4.5.1"
+  GODOT_STATUS: "stable"
+  GODOT_FLAVOR: "mono"
+  EXPORT_PRESET: ${{ inputs.export_preset || 'Windows Desktop' }}
+  RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
+  BUILD_NAME: "Tower Defense Prototype"
+  BUILD_DIR: "build/windows"
+  PACKAGE_PATH: "build/windows-release.zip"
+
+jobs:
+  windows-release:
+    name: Windows release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate Windows export preset exists
+        shell: bash
+        run: |
+          if ! grep -q 'platform="Windows Desktop"' export_presets.cfg; then
+            echo "::error::No Windows Desktop export preset found in export_presets.cfg."
+            exit 1
+          fi
+
+          if ! grep -q "name=\"${EXPORT_PRESET}\"" export_presets.cfg; then
+            echo "::error::Export preset '${EXPORT_PRESET}' was not found in export_presets.cfg."
+            exit 1
+          fi
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Install Godot
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          godot_tag="${GODOT_VERSION}-${GODOT_STATUS}"
+          godot_base="Godot_v${godot_tag}_${GODOT_FLAVOR}_linux_x86_64"
+          templates_file="Godot_v${godot_tag}_${GODOT_FLAVOR}_export_templates.tpz"
+          release_url="https://github.com/godotengine/godot-builds/releases/download/${godot_tag}"
+          templates_dir="${HOME}/.local/share/godot/export_templates/${GODOT_VERSION}.${GODOT_STATUS}.${GODOT_FLAVOR}"
+
+          curl -L "${release_url}/${godot_base}.zip" -o godot.zip
+          unzip -q godot.zip -d godot
+          chmod +x "godot/${godot_base}/Godot_v${godot_tag}_${GODOT_FLAVOR}_linux.x86_64"
+          sudo ln -s "${PWD}/godot/${godot_base}/Godot_v${godot_tag}_${GODOT_FLAVOR}_linux.x86_64" /usr/local/bin/godot
+
+          curl -L "${release_url}/${templates_file}" -o export_templates.tpz
+          unzip -q export_templates.tpz -d export_templates
+          mkdir -p "${templates_dir}"
+          mv export_templates/templates/* "${templates_dir}/"
+
+      - name: Import project
+        shell: bash
+        run: |
+          godot --headless --path . --import --quit
+
+      - name: Export Windows release
+        shell: bash
+        run: |
+          mkdir -p "${BUILD_DIR}"
+          godot --headless --path . --export-release "${EXPORT_PRESET}" "${BUILD_DIR}/${BUILD_NAME}.exe"
+
+      - name: Package Windows release
+        shell: bash
+        run: |
+          zip -r "${PACKAGE_PATH}" "${BUILD_DIR}"
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: ${{ env.RELEASE_TAG }}
+          files: ${{ env.PACKAGE_PATH }}
+          fail_on_unmatched_files: true
+          generate_release_notes: true
