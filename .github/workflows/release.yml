@@ -20,14 +20,10 @@ permissions:
   contents: write
 
 env:
-  GODOT_VERSION: "4.5.1"
-  GODOT_STATUS: "stable"
-  GODOT_FLAVOR: "mono"
   EXPORT_PRESET: ${{ inputs.export_preset || 'Windows Desktop' }}
   RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
-  BUILD_NAME: "Tower Defense Prototype"
-  BUILD_DIR: "build/windows"
-  PACKAGE_PATH: "build/windows-release.zip"
+  GODOT_EXECUTABLE_URL: "https://github.com/godotengine/godot-builds/releases/download/4.5.1-stable/Godot_v4.5.1-stable_mono_linux_x86_64.zip"
+  GODOT_TEMPLATES_URL: "https://github.com/godotengine/godot-builds/releases/download/4.5.1-stable/Godot_v4.5.1-stable_mono_export_templates.tpz"
 
 jobs:
   windows-release:
@@ -56,48 +52,23 @@ jobs:
         with:
           dotnet-version: "8.0.x"
 
-      - name: Install Godot
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          godot_tag="${GODOT_VERSION}-${GODOT_STATUS}"
-          godot_base="Godot_v${godot_tag}_${GODOT_FLAVOR}_linux_x86_64"
-          templates_file="Godot_v${godot_tag}_${GODOT_FLAVOR}_export_templates.tpz"
-          release_url="https://github.com/godotengine/godot-builds/releases/download/${godot_tag}"
-          templates_dir="${HOME}/.local/share/godot/export_templates/${GODOT_VERSION}.${GODOT_STATUS}.${GODOT_FLAVOR}"
-
-          curl -L "${release_url}/${godot_base}.zip" -o godot.zip
-          unzip -q godot.zip -d godot
-          chmod +x "godot/${godot_base}/Godot_v${godot_tag}_${GODOT_FLAVOR}_linux.x86_64"
-          sudo ln -s "${PWD}/godot/${godot_base}/Godot_v${godot_tag}_${GODOT_FLAVOR}_linux.x86_64" /usr/local/bin/godot
-
-          curl -L "${release_url}/${templates_file}" -o export_templates.tpz
-          unzip -q export_templates.tpz -d export_templates
-          mkdir -p "${templates_dir}"
-          mv export_templates/templates/* "${templates_dir}/"
-
-      - name: Import project
-        shell: bash
-        run: |
-          godot --headless --path . --import --quit
-
       - name: Export Windows release
-        shell: bash
-        run: |
-          mkdir -p "${BUILD_DIR}"
-          godot --headless --path . --export-release "${EXPORT_PRESET}" "${BUILD_DIR}/${BUILD_NAME}.exe"
-
-      - name: Package Windows release
-        shell: bash
-        run: |
-          zip -r "${PACKAGE_PATH}" "${BUILD_DIR}"
+        id: export
+        uses: firebelley/godot-export@v7.0.0
+        with:
+          godot_executable_download_url: ${{ env.GODOT_EXECUTABLE_URL }}
+          godot_export_templates_download_url: ${{ env.GODOT_TEMPLATES_URL }}
+          relative_project_path: ./
+          presets_to_export: ${{ env.EXPORT_PRESET }}
+          archive_output: true
+          archive_root_folder: true
+          cache: true
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
           name: ${{ env.RELEASE_TAG }}
-          files: ${{ env.PACKAGE_PATH }}
+          files: ${{ steps.export.outputs.archive_directory }}/*
           fail_on_unmatched_files: true
           generate_release_notes: true
